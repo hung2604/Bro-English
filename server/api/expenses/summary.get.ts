@@ -112,6 +112,21 @@ export default defineEventHandler(async (event) => {
       const paidBy = expense.paid_by ? parseInt(expense.paid_by) : null
       const amountPerPerson = expense.amount / participantIds.length
 
+      // Handle paid_by person (even if not a participant)
+      if (paidBy) {
+        const targetPaidBy = (charlottePersonId && sebPersonId && paidBy === charlottePersonId) 
+          ? sebPersonId 
+          : paidBy
+        
+        if (targetPaidBy) {
+          if (personPaid[targetPaidBy] === undefined) {
+            personPaid[targetPaidBy] = 0
+          }
+          personPaid[targetPaidBy] += expense.amount
+        }
+      }
+
+      // Handle participants
       participantIds.forEach((personId: number) => {
         // Merge Charlotte into Seb (only if both exist)
         const targetPersonId = (charlottePersonId && sebPersonId && personId === charlottePersonId) 
@@ -128,14 +143,6 @@ export default defineEventHandler(async (event) => {
         }
 
         personExpenses[targetPersonId] += amountPerPerson
-
-        // If Charlotte paid, count it as Seb paid
-        const targetPaidBy = (charlottePersonId && sebPersonId && paidBy === charlottePersonId) 
-          ? sebPersonId 
-          : paidBy
-        if (targetPaidBy && targetPaidBy === targetPersonId) {
-          personPaid[targetPersonId] += expense.amount
-        }
       })
     })
 
