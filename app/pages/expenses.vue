@@ -59,6 +59,10 @@
                         {{ formatCurrency(expense.amount) }}
                       </span>
                       <span class="mx-2">•</span>
+                      <span class="text-xs text-purple-600 font-medium">
+                        {{ formatCurrency(expense.amount / expense.participant_names.length) }}/person
+                      </span>
+                      <span class="mx-2">•</span>
                       <span>{{ formatDate(expense.date) }}</span>
                       <span v-if="expense.paid_by_name" class="mx-2">•</span>
                       <span v-if="expense.paid_by_name" class="text-xs text-blue-600">
