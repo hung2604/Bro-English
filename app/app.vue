@@ -22,7 +22,7 @@
                 :items="personOptions"
                 value-key="value"
                 placeholder="Select person"
-                class="w-48"
+                class="w-48 "
                 @update:model-value="handlePersonChange"
               />
             </div>
