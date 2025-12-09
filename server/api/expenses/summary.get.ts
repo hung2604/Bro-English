@@ -52,6 +52,15 @@ export default defineEventHandler(async (event) => {
 
     const sebPersonId = sebData?.id
 
+    // Get Charlotte's ID (will be merged into Seb)
+    const { data: charlotteData } = await supabase
+      .from('persons')
+      .select('id')
+      .eq('name', 'Charlotte')
+      .single()
+
+    const charlottePersonId = charlotteData?.id
+
     // Count unique dates with classes
     const { count: totalClassesCount } = await supabase
       .from('class_sessions')
@@ -74,8 +83,13 @@ export default defineEventHandler(async (event) => {
       personPaid[personId] = 0
     })
 
-    // Initialize teachers
+    // Initialize teachers (exclude Charlotte as it will be merged into Seb)
     teacherIds.forEach((personId: number) => {
+      // Skip Charlotte initialization - it will be merged into Seb
+      if (charlottePersonId && personId === charlottePersonId) {
+        return
+      }
+      
       personExpenses[personId] = 0
       personPaid[personId] = 0
       // Only Seb receives tuition
@@ -83,6 +97,14 @@ export default defineEventHandler(async (event) => {
         personPaid[personId] = -totalTuition // Negative means they receive money
       }
     })
+    
+    // Ensure Seb is initialized if Charlotte exists but Seb wasn't in teacherIds
+    if (charlottePersonId && sebPersonId) {
+      if (personExpenses[sebPersonId] === undefined) {
+        personExpenses[sebPersonId] = 0
+        personPaid[sebPersonId] = -totalTuition // Seb receives tuition
+      }
+    }
 
     // Add other expenses
     expenses?.forEach((expense: any) => {
@@ -91,17 +113,28 @@ export default defineEventHandler(async (event) => {
       const amountPerPerson = expense.amount / participantIds.length
 
       participantIds.forEach((personId: number) => {
-        if (personExpenses[personId] === undefined) {
-          personExpenses[personId] = 0
+        // Merge Charlotte into Seb (only if both exist)
+        const targetPersonId = (charlottePersonId && sebPersonId && personId === charlottePersonId) 
+          ? sebPersonId 
+          : personId
+        
+        if (!targetPersonId) return // Skip if target person doesn't exist
+        
+        if (personExpenses[targetPersonId] === undefined) {
+          personExpenses[targetPersonId] = 0
         }
-        if (personPaid[personId] === undefined) {
-          personPaid[personId] = 0
+        if (personPaid[targetPersonId] === undefined) {
+          personPaid[targetPersonId] = 0
         }
 
-        personExpenses[personId] += amountPerPerson
+        personExpenses[targetPersonId] += amountPerPerson
 
-        if (paidBy === personId) {
-          personPaid[personId] += expense.amount
+        // If Charlotte paid, count it as Seb paid
+        const targetPaidBy = (charlottePersonId && sebPersonId && paidBy === charlottePersonId) 
+          ? sebPersonId 
+          : paidBy
+        if (targetPaidBy && targetPaidBy === targetPersonId) {
+          personPaid[targetPersonId] += expense.amount
         }
       })
     })
@@ -127,8 +160,40 @@ export default defineEventHandler(async (event) => {
 
     const personNameMap = new Map((personNames || []).map((p: any) => [p.id, p.name]))
 
-    // Include all persons (default + teachers) in summary
-    const allPersonIds = [...defaultPersonIds, ...teacherIds]
+    // Collect all person IDs that have expenses or payments
+    // This includes default persons, teachers, and any other participants/payers
+    const allPersonIdsWithExpenses = new Set<number>()
+    
+    // Add default persons and teachers (excluding Charlotte)
+    defaultPersonIds.forEach(id => allPersonIdsWithExpenses.add(id))
+    teacherIds.forEach((personId) => {
+      // Exclude Charlotte as it's merged into Seb
+      if (!charlottePersonId || personId !== charlottePersonId) {
+        allPersonIdsWithExpenses.add(personId)
+      }
+    })
+    
+    // Add all persons who have expenses (participants)
+    Object.keys(personExpenses).forEach((personIdStr) => {
+      const personId = parseInt(personIdStr)
+      // Exclude Charlotte as it's merged into Seb
+      if (!charlottePersonId || personId !== charlottePersonId) {
+        allPersonIdsWithExpenses.add(personId)
+      }
+    })
+    
+    // Add all persons who have payments (paid_by)
+    Object.keys(personPaid).forEach((personIdStr) => {
+      const personId = parseInt(personIdStr)
+      // Exclude Charlotte as it's merged into Seb
+      if (!charlottePersonId || personId !== charlottePersonId) {
+        allPersonIdsWithExpenses.add(personId)
+      }
+    })
+    
+    // Convert to array
+    const allPersonIds = Array.from(allPersonIdsWithExpenses)
+    
     const summary = allPersonIds.map((personId) => {
       const shouldPay = personExpenses[personId] ?? 0
       const alreadyPaid = personPaid[personId] ?? 0
