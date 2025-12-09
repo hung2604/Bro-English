@@ -1,4 +1,4 @@
-import db from '../../utils/db'
+import { supabase } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
@@ -13,36 +13,45 @@ export default defineEventHandler(async (event) => {
 
   try {
     const personId = parseInt(userId as string)
-    const todayStr = new Date().toISOString().split('T')[0]
-    if (!todayStr) {
+    const todayStrResult = new Date().toISOString().split('T')[0]
+    if (!todayStrResult) {
       throw new Error('Failed to get today date')
     }
+    const todayStr: string = todayStrResult
 
     // Get all vocabulary
-    const allVocab = db.prepare(`
-      SELECT id FROM vocabulary
-    `).all() as Array<{ id: number }>
+    const { data: allVocabData } = await supabase
+      .from('vocabulary')
+      .select('id')
+
+    const allVocab = allVocabData || []
 
     // Get studied words
-    const studiedWords = db.prepare(`
-      SELECT 
-        vs.*,
-        v.word,
-        v.class_date
-      FROM vocabulary_study vs
-      INNER JOIN vocabulary v ON vs.vocabulary_id = v.id
-      WHERE vs.person_id = ?
-      ORDER BY v.class_date DESC, v.word ASC
-    `).all(personId) as any[]
+    const { data: studiedWordsData } = await supabase
+      .from('vocabulary_study')
+      .select(`
+        *,
+        vocabulary(word, class_date)
+      `)
+      .eq('person_id', personId)
+      .order('vocabulary(class_date)', { ascending: false })
+      .order('vocabulary(word)', { ascending: true })
+
+    const studiedWords = (studiedWordsData || []).map((s: any) => ({
+      ...s,
+      vocabulary_id: s.vocabulary_id,
+      word: s.vocabulary?.word,
+      class_date: s.vocabulary?.class_date,
+    }))
 
     // Categorize words
     const newWords = allVocab
-      .filter(v => !studiedWords.some(s => s.vocabulary_id === v.id))
-      .map(v => ({ vocabulary_id: v.id, status: 'new' }))
+      .filter((v: any) => !studiedWords.some((s: any) => s.vocabulary_id === v.id))
+      .map((v: any) => ({ vocabulary_id: v.id, status: 'new' }))
 
     const learningWords = studiedWords
-      .filter(s => s.repetitions < 3 || s.ease_factor < 2.0)
-      .map(s => ({
+      .filter((s: any) => s.repetitions < 3 || s.ease_factor < 2.0)
+      .map((s: any) => ({
         vocabulary_id: s.vocabulary_id,
         word: s.word,
         class_date: s.class_date,
@@ -53,8 +62,8 @@ export default defineEventHandler(async (event) => {
       }))
 
     const masteredWords = studiedWords
-      .filter(s => s.repetitions >= 5 && s.ease_factor >= 2.0)
-      .map(s => ({
+      .filter((s: any) => s.repetitions >= 5 && s.ease_factor >= 2.0)
+      .map((s: any) => ({
         vocabulary_id: s.vocabulary_id,
         word: s.word,
         class_date: s.class_date,
@@ -66,8 +75,8 @@ export default defineEventHandler(async (event) => {
 
     // Words due for review
     const dueWords = studiedWords
-      .filter(s => s.next_review_date && s.next_review_date <= todayStr)
-      .map(s => ({
+      .filter((s: any) => s.next_review_date && s.next_review_date <= todayStr)
+      .map((s: any) => ({
         vocabulary_id: s.vocabulary_id,
         word: s.word,
         next_review_date: s.next_review_date,
@@ -108,4 +117,3 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
-

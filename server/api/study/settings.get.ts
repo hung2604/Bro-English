@@ -1,4 +1,4 @@
-import db from '../../utils/db'
+import { supabase } from '../../utils/db'
 import { DEFAULT_NEW_WORDS_PER_DAY, DEFAULT_MAX_REVIEWS_PER_DAY } from '../../utils/study-constants'
 
 export default defineEventHandler(async (event) => {
@@ -14,28 +14,28 @@ export default defineEventHandler(async (event) => {
 
   try {
     // Try to get existing settings
-    let settings = db.prepare(`
-      SELECT * FROM user_study_settings
-      WHERE person_id = ?
-    `).get(parseInt(userId as string)) as any
+    const { data: settingsData } = await supabase
+      .from('user_study_settings')
+      .select('*')
+      .eq('person_id', parseInt(userId as string))
+      .single()
 
     // If no settings exist, create with default values
+    let settings = settingsData
     if (!settings) {
-      const insert = db.prepare(`
-        INSERT INTO user_study_settings (person_id, new_words_per_day, max_reviews_per_day, updated_at)
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-      `)
-      insert.run(
-        parseInt(userId as string),
-        DEFAULT_NEW_WORDS_PER_DAY,
-        DEFAULT_MAX_REVIEWS_PER_DAY
-      )
+      const { data: newSettings, error: insertError } = await supabase
+        .from('user_study_settings')
+        .insert({
+          person_id: parseInt(userId as string),
+          new_words_per_day: DEFAULT_NEW_WORDS_PER_DAY,
+          max_reviews_per_day: DEFAULT_MAX_REVIEWS_PER_DAY,
+          updated_at: new Date().toISOString(),
+        })
+        .select()
+        .single()
 
-      // Get the newly created settings
-      settings = db.prepare(`
-        SELECT * FROM user_study_settings
-        WHERE person_id = ?
-      `).get(parseInt(userId as string)) as any
+      if (insertError) throw insertError
+      settings = newSettings
     }
 
     return {
@@ -50,4 +50,3 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
-

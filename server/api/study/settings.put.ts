@@ -1,4 +1,4 @@
-import db from '../../utils/db'
+import { supabase } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -28,10 +28,11 @@ export default defineEventHandler(async (event) => {
 
   try {
     // Check if settings exist
-    const existing = db.prepare(`
-      SELECT * FROM user_study_settings
-      WHERE person_id = ?
-    `).get(parseInt(userId)) as any
+    const { data: existing } = await supabase
+      .from('user_study_settings')
+      .select('*')
+      .eq('person_id', parseInt(userId))
+      .single()
 
     if (!existing) {
       throw createError({
@@ -41,25 +42,26 @@ export default defineEventHandler(async (event) => {
     }
 
     // Update settings
-    const update = db.prepare(`
-      UPDATE user_study_settings
-      SET new_words_per_day = COALESCE(?, new_words_per_day),
-          max_reviews_per_day = COALESCE(?, max_reviews_per_day),
-          updated_at = CURRENT_TIMESTAMP
-      WHERE person_id = ?
-    `)
+    const updateData: any = {
+      updated_at: new Date().toISOString(),
+    }
 
-    update.run(
-      newWordsPerDay !== undefined ? parseInt(newWordsPerDay) : null,
-      maxReviewsPerDay !== undefined ? parseInt(maxReviewsPerDay) : null,
-      parseInt(userId)
-    )
+    if (newWordsPerDay !== undefined) {
+      updateData.new_words_per_day = parseInt(newWordsPerDay)
+    }
 
-    // Get updated settings
-    const settings = db.prepare(`
-      SELECT * FROM user_study_settings
-      WHERE person_id = ?
-    `).get(parseInt(userId)) as any
+    if (maxReviewsPerDay !== undefined) {
+      updateData.max_reviews_per_day = parseInt(maxReviewsPerDay)
+    }
+
+    const { data: settings, error: updateError } = await supabase
+      .from('user_study_settings')
+      .update(updateData)
+      .eq('person_id', parseInt(userId))
+      .select()
+      .single()
+
+    if (updateError) throw updateError
 
     return settings
   } catch (error: any) {
@@ -72,4 +74,3 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
-

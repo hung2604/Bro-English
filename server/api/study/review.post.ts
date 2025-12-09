@@ -1,4 +1,4 @@
-import db from '../../utils/db'
+import { supabase } from '../../utils/db'
 import { calculateNextReview, calculateNextReviewDate, type Rating } from '../../utils/study-algorithm'
 
 export default defineEventHandler(async (event) => {
@@ -25,27 +25,36 @@ export default defineEventHandler(async (event) => {
     const ratingValue = rating as Rating
 
     // Get or create vocabulary_study record
-    let studyRecord = db.prepare(`
-      SELECT * FROM vocabulary_study
-      WHERE person_id = ? AND vocabulary_id = ?
-    `).get(personId, vocabId) as any
+    const { data: studyRecordData } = await supabase
+      .from('vocabulary_study')
+      .select('*')
+      .eq('person_id', personId)
+      .eq('vocabulary_id', vocabId)
+      .single()
 
+    let studyRecord = studyRecordData
     const isFirstTime = !studyRecord
 
     if (isFirstTime) {
       // Create new study record
-      const insert = db.prepare(`
-        INSERT INTO vocabulary_study (
-          person_id, vocabulary_id, ease_factor, interval_days, repetitions,
-          next_review_date, last_reviewed_at, total_reviews, updated_at
-        )
-        VALUES (?, ?, 2.5, 0, 0, ?, CURRENT_TIMESTAMP, 0, CURRENT_TIMESTAMP)
-      `)
-      insert.run(personId, vocabId, null)
-      studyRecord = db.prepare(`
-        SELECT * FROM vocabulary_study
-        WHERE person_id = ? AND vocabulary_id = ?
-      `).get(personId, vocabId) as any
+      const { data: newRecord, error: insertError } = await supabase
+        .from('vocabulary_study')
+        .insert({
+          person_id: personId,
+          vocabulary_id: vocabId,
+          ease_factor: 2.5,
+          interval_days: 0,
+          repetitions: 0,
+          next_review_date: null,
+          last_reviewed_at: new Date().toISOString().split('T')[0],
+          total_reviews: 0,
+          updated_at: new Date().toISOString(),
+        })
+        .select()
+        .single()
+
+      if (insertError) throw insertError
+      studyRecord = newRecord
     }
 
     // Calculate next review
@@ -61,61 +70,42 @@ export default defineEventHandler(async (event) => {
     const today = new Date().toISOString().split('T')[0]
 
     // Update vocabulary_study
-    const update = db.prepare(`
-      UPDATE vocabulary_study
-      SET ease_factor = ?,
-          interval_days = ?,
-          repetitions = ?,
-          next_review_date = ?,
-          last_reviewed_at = ?,
-          total_reviews = total_reviews + 1,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `)
+    const { data: updatedRecord, error: updateError } = await supabase
+      .from('vocabulary_study')
+      .update({
+        ease_factor: result.easeFactor,
+        interval_days: result.interval,
+        repetitions: result.repetitions,
+        next_review_date: nextReviewDate,
+        last_reviewed_at: today,
+        total_reviews: (studyRecord.total_reviews || 0) + 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', studyRecord.id)
+      .select(`
+        *,
+        vocabulary(*)
+      `)
+      .single()
 
-    update.run(
-      result.easeFactor,
-      result.interval,
-      result.repetitions,
-      nextReviewDate,
-      today,
-      studyRecord.id
-    )
+    if (updateError) throw updateError
 
     // Create review history record
-    const insertReview = db.prepare(`
-      INSERT INTO vocabulary_reviews (
-        vocabulary_study_id, person_id, vocabulary_id, rating,
-        interval_before, interval_after, reviewed_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `)
-
-    insertReview.run(
-      studyRecord.id,
-      personId,
-      vocabId,
-      ratingValue,
-      studyRecord.interval_days || 0,
-      result.interval
-    )
-
-    // Get updated study record with vocabulary info
-    const updatedRecord = db.prepare(`
-      SELECT 
-        vs.*,
-        v.word,
-        v.english_definition,
-        v.vietnamese_meaning,
-        v.example_sentence,
-        v.class_date
-      FROM vocabulary_study vs
-      INNER JOIN vocabulary v ON vs.vocabulary_id = v.id
-      WHERE vs.id = ?
-    `).get(studyRecord.id) as any
+    await supabase
+      .from('vocabulary_reviews')
+      .insert({
+        vocabulary_study_id: studyRecord.id,
+        person_id: personId,
+        vocabulary_id: vocabId,
+        rating: ratingValue,
+        interval_before: studyRecord.interval_days || 0,
+        interval_after: result.interval,
+        reviewed_at: new Date().toISOString(),
+      })
 
     return {
       ...updatedRecord,
+      ...updatedRecord.vocabulary,
       nextReviewDate,
       isFirstTime,
     }
@@ -126,4 +116,3 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
-

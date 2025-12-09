@@ -1,4 +1,4 @@
-import db from '../../utils/db'
+import { supabase } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -12,16 +12,26 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    const insert = db.prepare('INSERT INTO persons (name) VALUES (?)')
-    const result = insert.run(name.trim())
-    const person = db.prepare('SELECT * FROM persons WHERE id = ?').get(result.lastInsertRowid)
-    return person
+    const { data, error } = await supabase
+      .from('persons')
+      .insert({ name: name.trim() })
+      .select()
+      .single()
+
+    if (error) {
+      if (error.code === '23505') { // Unique constraint violation in PostgreSQL
+        throw createError({
+          statusCode: 409,
+          message: 'Person with this name already exists'
+        })
+      }
+      throw error
+    }
+
+    return data
   } catch (error: any) {
-    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-      throw createError({
-        statusCode: 409,
-        message: 'Person with this name already exists'
-      })
+    if (error.statusCode) {
+      throw error
     }
     throw createError({
       statusCode: 500,
@@ -29,4 +39,3 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
-

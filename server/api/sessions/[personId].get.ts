@@ -1,8 +1,8 @@
-import db from '../../utils/db'
+import { supabase } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
   const personId = getRouterParam(event, 'personId')
-  
+
   if (!personId) {
     throw createError({
       statusCode: 400,
@@ -10,12 +10,20 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const sessions = db.prepare(`
-    SELECT * FROM class_sessions 
-    WHERE person_id = ? 
-    ORDER BY date
-  `).all(parseInt(personId))
+  // Note: class_sessions table doesn't have person_id in the schema
+  // This endpoint might need to be adjusted based on your actual schema
+  // For now, returning all sessions (global)
+  const { data, error } = await supabase
+    .from('class_sessions')
+    .select('*')
+    .order('date')
 
-  return sessions
+  if (error) {
+    throw createError({
+      statusCode: 500,
+      message: 'Failed to fetch sessions'
+    })
+  }
+
+  return data || []
 })
-

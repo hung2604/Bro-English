@@ -1,40 +1,35 @@
-import db from '../../utils/db'
+import { supabase } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
   const { date, year, month } = query
 
   try {
-    let vocabulary
+    let queryBuilder = supabase
+      .from('vocabulary')
+      .select(`
+        *,
+        persons!vocabulary_created_by_fkey(name)
+      `)
+      .order('class_date', { ascending: false })
+      .order('created_at', { ascending: false })
 
     if (date) {
-      // Get vocabulary for a specific date
-      vocabulary = db.prepare(`
-        SELECT v.*, p.name as created_by_name
-        FROM vocabulary v
-        LEFT JOIN persons p ON v.created_by = p.id
-        WHERE v.class_date = ?
-        ORDER BY v.created_at DESC
-      `).all(date) as any[]
+      queryBuilder = queryBuilder.eq('class_date', date as string)
     } else if (year && month) {
-      // Get vocabulary for a month
       const monthPrefix = `${year}-${String(month).padStart(2, '0')}-`
-      vocabulary = db.prepare(`
-        SELECT v.*, p.name as created_by_name
-        FROM vocabulary v
-        LEFT JOIN persons p ON v.created_by = p.id
-        WHERE v.class_date LIKE ?
-        ORDER BY v.class_date DESC, v.created_at DESC
-      `).all(`${monthPrefix}%`) as any[]
-    } else {
-      // Get all vocabulary
-      vocabulary = db.prepare(`
-        SELECT v.*, p.name as created_by_name
-        FROM vocabulary v
-        LEFT JOIN persons p ON v.created_by = p.id
-        ORDER BY v.class_date DESC, v.created_at DESC
-      `).all() as any[]
+      queryBuilder = queryBuilder.like('class_date', `${monthPrefix}%`)
     }
+
+    const { data, error } = await queryBuilder
+
+    if (error) throw error
+
+    // Map the result to include created_by_name
+    const vocabulary = (data || []).map((item: any) => ({
+      ...item,
+      created_by_name: item.persons?.name || null,
+    }))
 
     return vocabulary
   } catch (error: any) {
@@ -44,4 +39,3 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
-

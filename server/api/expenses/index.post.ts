@@ -1,4 +1,4 @@
-import db from '../../utils/db'
+import { supabase } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -12,51 +12,53 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    const insertExpense = db.prepare(`
-      INSERT INTO expenses (description, amount, date, expense_type, paid_by, updated_at)
-      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `)
-
-    const insertParticipant = db.prepare(`
-      INSERT INTO expense_participants (expense_id, person_id)
-      VALUES (?, ?)
-    `)
-
-    const transaction = db.transaction(() => {
-      const result = insertExpense.run(
+    // Insert expense
+    const { data: expense, error: expenseError } = await supabase
+      .from('expenses')
+      .insert({
         description,
-        parseFloat(amount),
+        amount: parseFloat(amount),
         date,
-        expenseType || 'other',
-        paidBy ? parseInt(paidBy) : null
-      )
-      const expenseId = result.lastInsertRowid
+        expense_type: expenseType || 'other',
+        paid_by: paidBy ? parseInt(paidBy) : null,
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single()
 
-      for (const personId of participantIds) {
-        insertParticipant.run(expenseId, parseInt(personId))
-      }
+    if (expenseError) throw expenseError
 
-      // Get the created expense with participants
-      const expense = db.prepare(`
-        SELECT e.*, 
-               GROUP_CONCAT(ep.person_id) as participant_ids,
-               GROUP_CONCAT(p.name) as participant_names
-        FROM expenses e
-        LEFT JOIN expense_participants ep ON e.id = ep.expense_id
-        LEFT JOIN persons p ON ep.person_id = p.id
-        WHERE e.id = ?
-        GROUP BY e.id
-      `).get(expenseId) as any
+    // Insert participants
+    const participants = participantIds.map((personId: unknown) => ({
+      expense_id: expense.id,
+      person_id: typeof personId === 'string' ? parseInt(personId) : (typeof personId === 'number' ? personId : parseInt(String(personId))),
+    }))
 
-      return expense
-    })
+    const { error: participantsError } = await supabase
+      .from('expense_participants')
+      .insert(participants)
 
-    const expense = transaction() as any
+    if (participantsError) throw participantsError
 
+    // Get the created expense with participants
+    const { data: expenseWithDetails, error: fetchError } = await supabase
+      .from('expenses')
+      .select(`
+        *,
+        expense_participants(person_id, persons(name)),
+        persons!expenses_paid_by_fkey(name)
+      `)
+      .eq('id', expense.id)
+      .single()
+
+    if (fetchError) throw fetchError
+
+    const participantsData = expenseWithDetails.expense_participants || []
     return {
-      ...expense,
-      participant_ids: expense.participant_ids ? expense.participant_ids.split(',').map(Number) : [],
-      participant_names: expense.participant_names ? expense.participant_names.split(',') : []
+      ...expenseWithDetails,
+      participant_ids: participantsData.map((ep: any) => ep.person_id),
+      participant_names: participantsData.map((ep: any) => ep.persons?.name || '').filter(Boolean),
+      paid_by_name: expenseWithDetails.persons?.name || null,
     }
   } catch (error: any) {
     throw createError({
@@ -65,4 +67,3 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
-

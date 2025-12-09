@@ -1,4 +1,4 @@
-import db from '../../utils/db'
+import { supabase } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -13,35 +13,36 @@ export default defineEventHandler(async (event) => {
 
   try {
     // Check if user is Seb (teacher)
-    const user = db.prepare('SELECT name FROM persons WHERE id = ?').get(parseInt(userId)) as { name: string } | undefined
-    const isSeb = user?.name === 'Seb'
+    const { data: user } = await supabase
+      .from('persons')
+      .select('name')
+      .eq('id', parseInt(userId))
+      .single()
 
-    // Seb can add word + English definition
-    // Others can add Vietnamese meaning and example sentence
-    // But for simplicity, we'll allow anyone to add, but Seb typically adds new words
-    const insert = db.prepare(`
-      INSERT INTO vocabulary (word, english_definition, vietnamese_meaning, example_sentence, class_date, created_by, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `)
+    // Insert vocabulary
+    const { data: vocabulary, error: insertError } = await supabase
+      .from('vocabulary')
+      .insert({
+        word: word.trim(),
+        english_definition: englishDefinition?.trim() || null,
+        vietnamese_meaning: vietnameseMeaning?.trim() || null,
+        example_sentence: exampleSentence?.trim() || null,
+        class_date: classDate,
+        created_by: parseInt(userId),
+        updated_at: new Date().toISOString(),
+      })
+      .select(`
+        *,
+        persons!vocabulary_created_by_fkey(name)
+      `)
+      .single()
 
-    const result = insert.run(
-      word.trim(),
-      englishDefinition?.trim() || null,
-      vietnameseMeaning?.trim() || null,
-      exampleSentence?.trim() || null,
-      classDate,
-      parseInt(userId)
-    )
+    if (insertError) throw insertError
 
-    // Get the created vocabulary with creator name
-    const vocabulary = db.prepare(`
-      SELECT v.*, p.name as created_by_name
-      FROM vocabulary v
-      LEFT JOIN persons p ON v.created_by = p.id
-      WHERE v.id = ?
-    `).get(result.lastInsertRowid) as any
-
-    return vocabulary
+    return {
+      ...vocabulary,
+      created_by_name: vocabulary.persons?.name || null,
+    }
   } catch (error: any) {
     throw createError({
       statusCode: 500,
@@ -49,4 +50,3 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
-

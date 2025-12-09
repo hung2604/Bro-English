@@ -1,50 +1,43 @@
-import db from '../../utils/db'
+import { supabase } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
   const { year, month } = query
 
   try {
-    let expenses
+    let queryBuilder = supabase
+      .from('expenses')
+      .select(`
+        *,
+        expense_participants(person_id, persons(name)),
+        persons!expenses_paid_by_fkey(name)
+      `)
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false })
+
     if (year && month) {
-      // Get expenses for a specific month
       const monthPrefix = `${year}-${String(month).padStart(2, '0')}-`
-      expenses = db.prepare(`
-        SELECT e.*, 
-               GROUP_CONCAT(ep.person_id) as participant_ids,
-               GROUP_CONCAT(p.name) as participant_names,
-               pb.name as paid_by_name
-        FROM expenses e
-        LEFT JOIN expense_participants ep ON e.id = ep.expense_id
-        LEFT JOIN persons p ON ep.person_id = p.id
-        LEFT JOIN persons pb ON e.paid_by = pb.id
-        WHERE e.date LIKE ?
-        GROUP BY e.id
-        ORDER BY e.date DESC, e.created_at DESC
-      `).all(`${monthPrefix}%`)
+      queryBuilder = queryBuilder.like('date', `${monthPrefix}%`)
     } else {
-      // Get all expenses
-      expenses = db.prepare(`
-        SELECT e.*, 
-               GROUP_CONCAT(ep.person_id) as participant_ids,
-               GROUP_CONCAT(p.name) as participant_names,
-               pb.name as paid_by_name
-        FROM expenses e
-        LEFT JOIN expense_participants ep ON e.id = ep.expense_id
-        LEFT JOIN persons p ON ep.person_id = p.id
-        LEFT JOIN persons pb ON e.paid_by = pb.id
-        GROUP BY e.id
-        ORDER BY e.date DESC, e.created_at DESC
-        LIMIT 100
-      `).all()
+      queryBuilder = queryBuilder.limit(100)
     }
 
-    // Parse participant data
-    return expenses.map((expense: any) => ({
-      ...expense,
-      participant_ids: expense.participant_ids ? expense.participant_ids.split(',').map(Number) : [],
-      participant_names: expense.participant_names ? expense.participant_names.split(',') : []
-    }))
+    const { data, error } = await queryBuilder
+
+    if (error) throw error
+
+    // Map the result to match the expected format
+    const expenses = (data || []).map((expense: any) => {
+      const participants = expense.expense_participants || []
+      return {
+        ...expense,
+        participant_ids: participants.map((ep: any) => ep.person_id),
+        participant_names: participants.map((ep: any) => ep.persons?.name || '').filter(Boolean),
+        paid_by_name: expense.persons?.name || null,
+      }
+    })
+
+    return expenses
   } catch (error: any) {
     throw createError({
       statusCode: 500,
@@ -52,4 +45,3 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
-

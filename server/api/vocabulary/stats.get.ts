@@ -1,4 +1,4 @@
-import db from '../../utils/db'
+import { supabase } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
@@ -13,20 +13,21 @@ export default defineEventHandler(async (event) => {
 
   try {
     const monthPrefix = `${year}-${String(month).padStart(2, '0')}-`
-    
-    // Get vocabulary count per date for the month
-    const stats = db.prepare(`
-      SELECT class_date, COUNT(*) as count
-      FROM vocabulary
-      WHERE class_date LIKE ?
-      GROUP BY class_date
-      ORDER BY class_date
-    `).all(`${monthPrefix}%`) as Array<{ class_date: string; count: number }>
 
-    // Convert to map for easy lookup
+    // Get vocabulary count per date for the month
+    // Supabase doesn't support GROUP BY directly in select, so we'll fetch all and group in code
+    const { data, error } = await supabase
+      .from('vocabulary')
+      .select('class_date')
+      .like('class_date', `${monthPrefix}%`)
+
+    if (error) throw error
+
+    // Group by date
     const statsMap = new Map<string, number>()
-    stats.forEach(stat => {
-      statsMap.set(stat.class_date, stat.count)
+    data?.forEach((item: any) => {
+      const count = statsMap.get(item.class_date) || 0
+      statsMap.set(item.class_date, count + 1)
     })
 
     return Object.fromEntries(statsMap)
@@ -37,4 +38,3 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
-

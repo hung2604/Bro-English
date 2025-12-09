@@ -1,4 +1,4 @@
-import db from '../../utils/db'
+import { supabase } from '../../utils/db'
 import { DEFAULT_NEW_WORDS_PER_DAY, DEFAULT_MAX_REVIEWS_PER_DAY } from '../../utils/study-constants'
 
 export default defineEventHandler(async (event) => {
@@ -17,78 +17,83 @@ export default defineEventHandler(async (event) => {
     const today = new Date().toISOString().split('T')[0]
 
     // Get user settings (or use defaults)
-    let settings = db.prepare(`
-      SELECT * FROM user_study_settings
-      WHERE person_id = ?
-    `).get(personId) as any
+    const { data: settingsData } = await supabase
+      .from('user_study_settings')
+      .select('*')
+      .eq('person_id', personId)
+      .single()
 
-    if (!settings) {
-      // Use defaults if no settings
-      settings = {
-        new_words_per_day: DEFAULT_NEW_WORDS_PER_DAY,
-        max_reviews_per_day: DEFAULT_MAX_REVIEWS_PER_DAY,
-      }
+    const settings = settingsData || {
+      new_words_per_day: DEFAULT_NEW_WORDS_PER_DAY,
+      max_reviews_per_day: DEFAULT_MAX_REVIEWS_PER_DAY,
     }
 
     // Get words that need review (due today or overdue)
-    const wordsToReview = db.prepare(`
-      SELECT 
-        vs.*,
-        v.word,
-        v.english_definition,
-        v.vietnamese_meaning,
-        v.example_sentence,
-        v.class_date,
-        CASE 
-          WHEN vs.last_reviewed_at IS NULL THEN 999
-          ELSE CAST((julianday('now') - julianday(vs.last_reviewed_at)) AS INTEGER)
-        END as days_since_last_review
-      FROM vocabulary_study vs
-      INNER JOIN vocabulary v ON vs.vocabulary_id = v.id
-      WHERE vs.person_id = ?
-        AND (vs.next_review_date IS NULL OR vs.next_review_date <= ?)
-      ORDER BY 
-        CASE 
-          WHEN vs.last_reviewed_at IS NULL THEN 0
-          ELSE CAST((julianday('now') - julianday(vs.last_reviewed_at)) AS INTEGER)
-        END DESC,
-        vs.next_review_date ASC
-      LIMIT ?
-    `).all(personId, today, settings.max_reviews_per_day) as any[]
+    const { data: wordsToReviewData } = await supabase
+      .from('vocabulary_study')
+      .select(`
+        *,
+        vocabulary(*)
+      `)
+      .eq('person_id', personId)
+      .or(`next_review_date.is.null,next_review_date.lte.${today}`)
+      .order('last_reviewed_at', { ascending: false, nullsFirst: true })
+      .order('next_review_date', { ascending: true })
+      .limit(settings.max_reviews_per_day)
+
+    // Calculate days_since_last_review in JavaScript
+    const wordsToReview = (wordsToReviewData || []).map((word: any) => {
+      const daysSince = word.last_reviewed_at
+        ? Math.floor((Date.now() - new Date(word.last_reviewed_at).getTime()) / (1000 * 60 * 60 * 24))
+        : 999
+
+      return {
+        ...word,
+        ...word.vocabulary,
+        days_since_last_review: daysSince,
+      }
+    })
 
     // Get new words (not yet studied by this person)
-    const studiedRows = db.prepare(`
-      SELECT vocabulary_id FROM vocabulary_study WHERE person_id = ?
-    `).all(personId) as Array<{ vocabulary_id: number }>
-    const studiedWordIds = studiedRows.map((row: any) => row.vocabulary_id)
+    const { data: studiedRows } = await supabase
+      .from('vocabulary_study')
+      .select('vocabulary_id')
+      .eq('person_id', personId)
+
+    const studiedWordIds = (studiedRows || []).map((row: any) => row.vocabulary_id)
 
     let newWords: any[] = []
     if (studiedWordIds.length > 0) {
-      const placeholders = studiedWordIds.map(() => '?').join(',')
-      newWords = db.prepare(`
-        SELECT 
-          v.*,
-          'new' as study_type,
-          0 as days_since_last_review
-        FROM vocabulary v
-        WHERE v.id NOT IN (${placeholders})
-        ORDER BY v.class_date DESC, v.created_at DESC
-        LIMIT ?
-      `).all(...studiedWordIds, settings.new_words_per_day) as any[]
+      const { data: newWordsData } = await supabase
+        .from('vocabulary')
+        .select('*')
+        .not('id', 'in', `(${studiedWordIds.join(',')})`)
+        .order('class_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(settings.new_words_per_day)
+
+      newWords = (newWordsData || []).map((word: any) => ({
+        ...word,
+        study_type: 'new',
+        days_since_last_review: 0,
+      }))
     } else {
-      newWords = db.prepare(`
-        SELECT 
-          v.*,
-          'new' as study_type,
-          0 as days_since_last_review
-        FROM vocabulary v
-        ORDER BY v.class_date DESC, v.created_at DESC
-        LIMIT ?
-      `).all(settings.new_words_per_day) as any[]
+      const { data: newWordsData } = await supabase
+        .from('vocabulary')
+        .select('*')
+        .order('class_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(settings.new_words_per_day)
+
+      newWords = (newWordsData || []).map((word: any) => ({
+        ...word,
+        study_type: 'new',
+        days_since_last_review: 0,
+      }))
     }
 
     // Format review words
-    const reviewWords = wordsToReview.map(word => ({
+    const reviewWords = wordsToReview.map((word: any) => ({
       ...word,
       study_type: 'review',
     }))
@@ -111,4 +116,3 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
-

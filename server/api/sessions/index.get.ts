@@ -1,4 +1,4 @@
-import db from '../../utils/db'
+import { supabase } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
@@ -13,12 +13,18 @@ export default defineEventHandler(async (event) => {
 
   const monthPrefix = `${year}-${String(month).padStart(2, '0')}-`
   
-  const sessions = db.prepare(`
-    SELECT * FROM class_sessions 
-    WHERE date LIKE ?
-    ORDER BY date
-  `).all(monthPrefix)
+  const { data, error } = await supabase
+    .from('class_sessions')
+    .select('*')
+    .like('date', `${monthPrefix}%`)
+    .order('date')
 
-  return sessions
+  if (error) {
+    throw createError({
+      statusCode: 500,
+      message: 'Failed to fetch sessions'
+    })
+  }
+
+  return data || []
 })
-

@@ -1,4 +1,4 @@
-import db from '../../utils/db'
+import { supabase } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
@@ -11,15 +11,12 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    const deleteExpense = db.prepare('DELETE FROM expenses WHERE id = ?')
-    const result = deleteExpense.run(parseInt(id))
+    const { error } = await supabase
+      .from('expenses')
+      .delete()
+      .eq('id', parseInt(id))
 
-    if (result.changes === 0) {
-      throw createError({
-        statusCode: 404,
-        message: 'Expense not found'
-      })
-    }
+    if (error) throw error
 
     return { success: true }
   } catch (error: any) {
@@ -32,4 +29,3 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
-

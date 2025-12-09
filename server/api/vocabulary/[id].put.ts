@@ -1,4 +1,4 @@
-import db from '../../utils/db'
+import { supabase } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
@@ -14,8 +14,13 @@ export default defineEventHandler(async (event) => {
 
   try {
     // Get existing vocabulary
-    const existing = db.prepare('SELECT * FROM vocabulary WHERE id = ?').get(parseInt(id)) as any
-    if (!existing) {
+    const { data: existing, error: fetchError } = await supabase
+      .from('vocabulary')
+      .select('*')
+      .eq('id', parseInt(id))
+      .single()
+
+    if (fetchError || !existing) {
       throw createError({
         statusCode: 404,
         message: 'Vocabulary not found'
@@ -23,33 +28,28 @@ export default defineEventHandler(async (event) => {
     }
 
     // Update vocabulary
-    const update = db.prepare(`
-      UPDATE vocabulary 
-      SET word = ?,
-          english_definition = ?,
-          vietnamese_meaning = ?,
-          example_sentence = ?,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `)
+    const { data: vocabulary, error: updateError } = await supabase
+      .from('vocabulary')
+      .update({
+        word: word?.trim() || existing.word,
+        english_definition: englishDefinition?.trim() || existing.english_definition,
+        vietnamese_meaning: vietnameseMeaning?.trim() || existing.vietnamese_meaning,
+        example_sentence: exampleSentence?.trim() || existing.example_sentence,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', parseInt(id))
+      .select(`
+        *,
+        persons!vocabulary_created_by_fkey(name)
+      `)
+      .single()
 
-    update.run(
-      word?.trim() || existing.word,
-      englishDefinition?.trim() || existing.english_definition,
-      vietnameseMeaning?.trim() || existing.vietnamese_meaning,
-      exampleSentence?.trim() || existing.example_sentence,
-      parseInt(id)
-    )
+    if (updateError) throw updateError
 
-    // Get updated vocabulary with creator name
-    const vocabulary = db.prepare(`
-      SELECT v.*, p.name as created_by_name
-      FROM vocabulary v
-      LEFT JOIN persons p ON v.created_by = p.id
-      WHERE v.id = ?
-    `).get(parseInt(id)) as any
-
-    return vocabulary
+    return {
+      ...vocabulary,
+      created_by_name: vocabulary.persons?.name || null,
+    }
   } catch (error: any) {
     if (error.statusCode) {
       throw error
@@ -60,4 +60,3 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
-
