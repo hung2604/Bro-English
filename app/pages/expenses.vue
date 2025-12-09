@@ -379,7 +379,58 @@ interface Summary {
   }>
 }
 
-const currentDate = ref(new Date())
+const route = useRoute()
+
+// Load saved month from URL query, cookie, or use current month
+// Use shared cookie for both expenses and calendar pages
+const selectedMonthCookie = useCookie<string>('selectedMonth', {
+  default: () => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  },
+  sameSite: 'lax',
+  secure: process.env.NODE_ENV === 'production',
+})
+
+// Initialize currentDate from URL query, cookie, or current month
+const initializeCurrentDate = () => {
+  // Priority 1: URL query parameter
+  const monthParam = route.query.month as string | undefined
+  if (monthParam) {
+    const [year, month] = monthParam.split('-').map(Number)
+    if (year && month && month >= 1 && month <= 12) {
+      return new Date(year, month - 1, 1)
+    }
+  }
+  
+  // Priority 2: Shared cookie (works for both expenses and calendar)
+  if (selectedMonthCookie.value) {
+    const [year, month] = selectedMonthCookie.value.split('-').map(Number)
+    if (year && month) {
+      return new Date(year, month - 1, 1)
+    }
+  }
+  
+  // Priority 3: Current month
+  return new Date()
+}
+
+const currentDate = ref(initializeCurrentDate())
+
+// Sync URL when currentDate changes
+watch(currentDate, (newDate) => {
+  const year = newDate.getFullYear()
+  const month = newDate.getMonth() + 1
+  const monthStr = `${year}-${String(month).padStart(2, '0')}`
+  
+  // Update shared cookie
+  selectedMonthCookie.value = monthStr
+  
+  // Update URL without reload
+  router.replace({
+    query: { ...route.query, month: monthStr },
+  })
+}, { immediate: false })
 const expenses = ref<Expense[]>([])
 const summary = ref<Summary | null>(null)
 const loading = ref(false)
@@ -630,6 +681,16 @@ const nextMonth = () => {
 }
 
 onMounted(async () => {
+  // Ensure URL has month parameter (if not, set it to current month)
+  if (!route.query.month) {
+    const year = currentDate.value.getFullYear()
+    const month = currentDate.value.getMonth() + 1
+    const monthStr = `${year}-${String(month).padStart(2, '0')}`
+    router.replace({
+      query: { ...route.query, month: monthStr },
+    })
+  }
+  
   await loadPersons()
   await loadExpenses()
   await loadSummary()
