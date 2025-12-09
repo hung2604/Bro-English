@@ -18,7 +18,7 @@ const db = new Database(dbPath)
 db.pragma('foreign_keys = ON')
 
 // Create tables
-db.exec(`
+const createTablesSQL = `
   CREATE TABLE IF NOT EXISTS persons (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
@@ -129,7 +129,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_vocabulary_study_vocab ON vocabulary_study(vocabulary_id);
   CREATE INDEX IF NOT EXISTS idx_vocabulary_study_next_review ON vocabulary_study(next_review_date);
   CREATE INDEX IF NOT EXISTS idx_vocabulary_reviews_study ON vocabulary_reviews(vocabulary_study_id);
-`)
+`
+
+db.exec(createTablesSQL)
 
 // Initialize default persons if they don't exist
 const defaultPersons = ['Ania', 'Simon', 'Heiry', 'James', 'David']

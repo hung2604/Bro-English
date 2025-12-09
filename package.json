@@ -7,7 +7,7 @@
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare && npm rebuild better-sqlite3"
   },
   "dependencies": {
     "@nuxt/eslint": "^1.11.0",

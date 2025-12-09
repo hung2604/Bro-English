@@ -1,0 +1,11 @@
+{
+  "buildCommand": "npm run build",
+  "installCommand": "npm install",
+  "framework": "nuxtjs",
+  "functions": {
+    "server/**/*.ts": {
+      "runtime": "nodejs20.x"
+    }
+  }
+}
+
