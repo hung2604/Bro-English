@@ -403,6 +403,15 @@ const rateWord = async (ratingValue: 1 | 2 | 3 | 4) => {
 }
 
 onMounted(async () => {
+  // Wait for client-side hydration to complete
+  await nextTick()
+  
+  // Load person data if we have personId but not person object
+  if (selectedPersonId.value) {
+    const { loadSelectedPerson } = useSelectedPerson()
+    await loadSelectedPerson()
+  }
+  
   if (!selectedPersonId.value) {
     router.push('/')
     return

@@ -1,32 +1,30 @@
 export const useSelectedPerson = () => {
-  const selectedPersonId = useState<number | null>('selectedPersonId', () => {
-    // Load from localStorage on client-side initialization
-    if (import.meta.client) {
-      try {
-        const stored = localStorage.getItem('selectedPersonId')
-        if (stored) {
-          return parseInt(stored)
-        }
-      }
-      catch (error) {
-        console.error('Failed to read from localStorage:', error)
-      }
-    }
-    return null
+  // Use cookie instead of localStorage - automatically syncs between client and server
+  const selectedPersonIdCookie = useCookie<number | null>('selectedPersonId', {
+    default: () => null,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: false, // Need to access from client-side
   })
 
   const selectedPerson = useState<{ id: number; name: string } | null>('selectedPerson', () => null)
 
+  // Convert cookie value to number | null and make it reactive
+  const selectedPersonId = computed<number | null>({
+    get: () => {
+      const value = selectedPersonIdCookie.value
+      if (value === null || value === undefined) return null
+      const num = typeof value === 'number' ? value : parseInt(String(value), 10)
+      return isNaN(num) ? null : num
+    },
+    set: (val: number | null) => {
+      selectedPersonIdCookie.value = val
+    },
+  })
+
   const setSelectedPerson = (person: { id: number; name: string } | null) => {
     selectedPerson.value = person
     selectedPersonId.value = person?.id || null
-    if (import.meta.client) {
-      if (person) {
-        localStorage.setItem('selectedPersonId', person.id.toString())
-      } else {
-        localStorage.removeItem('selectedPersonId')
-      }
-    }
   }
 
   const loadSelectedPerson = async () => {
@@ -50,7 +48,7 @@ export const useSelectedPerson = () => {
     selectedPersonId: readonly(selectedPersonId),
     selectedPerson: readonly(selectedPerson),
     setSelectedPerson,
-    loadSelectedPerson
+    loadSelectedPerson,
   }
 }
 

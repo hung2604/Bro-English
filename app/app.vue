@@ -80,7 +80,7 @@ const showHeader = computed(() => route.path !== '/')
 const personOptions = computed(() => {
   return allPersons.value.map(p => ({
     label: p.name,
-    value: p.id
+    value: p.id,
   }))
 })
 
