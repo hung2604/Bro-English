@@ -2,7 +2,11 @@ import Database from 'better-sqlite3'
 import { join } from 'node:path'
 import { existsSync, mkdirSync } from 'node:fs'
 
-const dbDir = join(process.cwd(), '.data')
+// On Vercel (serverless), use /tmp directory which is writable
+// In local development, use .data directory
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV
+const dbDir = isVercel ? '/tmp' : join(process.cwd(), '.data')
+
 if (!existsSync(dbDir)) {
   mkdirSync(dbDir, { recursive: true })
 }
