@@ -12,6 +12,35 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
+    // Check if month already has any sessions
+    const monthPrefix = `${year}-${String(month).padStart(2, '0')}-`
+    const { data: existingSessions, error: checkError } = await supabase
+      .from('class_sessions')
+      .select('date')
+      .like('date', `${monthPrefix}%`)
+      .limit(1)
+
+    if (checkError) throw checkError
+
+    // If month already has sessions, don't initialize (preserve user changes)
+    if (existingSessions && existingSessions.length > 0) {
+      // Return existing sessions without modifying them
+      const { data: allSessions, error: fetchError } = await supabase
+        .from('class_sessions')
+        .select('*')
+        .like('date', `${monthPrefix}%`)
+        .order('date')
+
+      if (fetchError) throw fetchError
+
+      return {
+        success: true,
+        sessions: allSessions || [],
+        initialized: 0,
+        message: 'Month already has sessions, skipping initialization',
+      }
+    }
+
     const daysInMonth = new Date(year, month, 0).getDate()
     const sessions: Array<{ date: string }> = []
 
@@ -27,7 +56,7 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    // Insert sessions (upsert to avoid conflicts)
+    // Insert sessions (only if month is empty)
     const sessionsToInsert = sessions.map(s => ({
       date: s.date,
       has_class: 1,
@@ -36,15 +65,11 @@ export default defineEventHandler(async (event) => {
 
     const { error: insertError } = await supabase
       .from('class_sessions')
-      .upsert(sessionsToInsert, {
-        onConflict: 'date',
-        ignoreDuplicates: false,
-      })
+      .insert(sessionsToInsert)
 
     if (insertError) throw insertError
 
     // Return all sessions for the month (global)
-    const monthPrefix = `${year}-${String(month).padStart(2, '0')}-`
     const { data: allSessions, error: fetchError } = await supabase
       .from('class_sessions')
       .select('*')
