@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
     if (expensesError) throw expensesError
 
     // Get class sessions for the month to calculate tuition
-    const defaultPersons = ['Ania', 'Simon', 'Heiry', 'James', 'David']
+    const defaultPersons = ['Ania', 'Simon', 'Hairy', 'James', 'David']
     const teachers = ['Seb', 'Charlotte']
 
     // Get person IDs

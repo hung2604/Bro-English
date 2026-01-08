@@ -71,15 +71,41 @@
                         title="Pronounce"
                       />
                     </div>
-                    <div v-if="word.english_definition" class="text-sm text-gray-700 mb-2">
-                      <span class="font-semibold">EN:</span> {{ word.english_definition }}
+                    <!-- Show meanings grouped by word type -->
+                    <div v-if="word.meanings && word.meanings.length > 0" class="space-y-3 mb-2">
+                      <div
+                        v-for="meaning in word.meanings"
+                        :key="meaning.id"
+                        class="border-l-2 border-blue-300 pl-3 py-1"
+                      >
+                        <div class="flex items-center gap-2 mb-1">
+                          <span class="text-xs font-semibold text-blue-600 uppercase bg-blue-50 px-2 py-0.5 rounded">
+                            {{ meaning.word_type }}
+                          </span>
+                        </div>
+                        <div v-if="meaning.english_definition" class="text-sm text-gray-700 mb-1">
+                          <span class="font-semibold">EN:</span> {{ meaning.english_definition }}
+                        </div>
+                        <div v-if="meaning.vietnamese_meaning" class="text-sm text-gray-700 mb-1">
+                          <span class="font-semibold">VI:</span> {{ meaning.vietnamese_meaning }}
+                        </div>
+                        <div v-if="meaning.example_sentence" class="text-sm text-gray-600 italic">
+                          <span class="font-semibold">Example:</span> "{{ meaning.example_sentence }}"
+                        </div>
+                      </div>
                     </div>
-                    <div v-if="word.vietnamese_meaning" class="text-sm text-gray-700 mb-2">
-                      <span class="font-semibold">VI:</span> {{ word.vietnamese_meaning }}
-                    </div>
-                    <div v-if="word.example_sentence" class="text-sm text-gray-600 italic mb-2">
-                      <span class="font-semibold">Example:</span> "{{ word.example_sentence }}"
-                    </div>
+                    <!-- Fallback to old format if no meanings -->
+                    <template v-else>
+                      <div v-if="word.english_definition" class="text-sm text-gray-700 mb-2">
+                        <span class="font-semibold">EN:</span> {{ word.english_definition }}
+                      </div>
+                      <div v-if="word.vietnamese_meaning" class="text-sm text-gray-700 mb-2">
+                        <span class="font-semibold">VI:</span> {{ word.vietnamese_meaning }}
+                      </div>
+                      <div v-if="word.example_sentence" class="text-sm text-gray-600 italic mb-2">
+                        <span class="font-semibold">Example:</span> "{{ word.example_sentence }}"
+                      </div>
+                    </template>
                     <div class="text-xs text-gray-500">
                       Added by: {{ word.created_by_name }}
                     </div>
@@ -113,35 +139,108 @@
       <template #body>
         <div class="space-y-4">
           <UFormField label="Word (English)" required>
-            <UInput
-              v-model="newWord.word"
-              placeholder="Enter English word"
-              :disabled="!isSeb && !editingWord"
-              class="w-full"
-            />
+            <div class="flex gap-2">
+              <UInput
+                v-model="newWord.word"
+                placeholder="Enter English word"
+                :disabled="!isSeb && !editingWord || loadingAI"
+                class="flex-1"
+              />
+              <UButton
+                @click="getMeaningsFromAI"
+                :disabled="!newWord.word.trim() || loadingAI"
+                :loading="loadingAI"
+                color="primary"
+                variant="solid"
+                icon="i-heroicons-sparkles"
+                title="Get meanings from AI"
+              >
+                {{ loadingAI ? 'Loading...' : 'AI' }}
+              </UButton>
+            </div>
+            <p v-if="loadingAI" class="text-xs text-gray-500 mt-1">
+              AI is analyzing the word and generating meanings...
+            </p>
           </UFormField>
-          <UFormField label="English Definition">
-            <UTextarea
-              v-model="newWord.englishDefinition"
-              placeholder="Enter English definition"
-              :disabled="!isSeb && !editingWord"
-              class="w-full"
-            />
-          </UFormField>
-          <UFormField label="Vietnamese Meaning">
-            <UTextarea
-              v-model="newWord.vietnameseMeaning"
-              placeholder="Enter Vietnamese meaning"
-              class="w-full"
-            />
-          </UFormField>
-          <UFormField label="Example Sentence">
-            <UTextarea
-              v-model="newWord.exampleSentence"
-              placeholder="Enter example sentence"
-              class="w-full"
-            />
-          </UFormField>
+
+          <!-- Meanings Section -->
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <label class="text-sm font-medium text-gray-700">Meanings (by Word Type)</label>
+              <UButton
+                @click="addMeaning"
+                variant="ghost"
+                color="primary"
+                size="sm"
+                icon="i-heroicons-plus"
+              >
+                Add Meaning
+              </UButton>
+            </div>
+
+            <div v-if="newWord.meanings.length === 0" class="text-sm text-gray-500 bg-gray-50 p-3 rounded">
+              No meanings added yet. Click "Add Meaning" to add a word type and its meaning.
+            </div>
+
+            <div
+              v-for="(meaning, index) in newWord.meanings"
+              :key="index"
+              class="border border-gray-200 rounded-lg p-4 space-y-3 bg-gray-50"
+            >
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-semibold text-gray-700">Meaning {{ index + 1 }}</span>
+                <UButton
+                  @click="removeMeaning(index)"
+                  variant="ghost"
+                  color="error"
+                  size="xs"
+                  icon="i-heroicons-trash"
+                >
+                  Remove
+                </UButton>
+              </div>
+
+              <UFormField label="Word Type" required>
+                <USelect
+                  v-model="meaning.wordType"
+                  :items="wordTypes"
+                  value-key="value"
+                  option-attribute="label"
+                  placeholder="Select word type"
+                  class="w-full"
+                />
+              </UFormField>
+
+              <UFormField label="English Definition">
+                <UTextarea
+                  v-model="meaning.englishDefinition"
+                  placeholder="Enter English definition"
+                  :disabled="!isSeb && !editingWord"
+                  class="w-full"
+                  :rows="2"
+                />
+              </UFormField>
+
+              <UFormField label="Vietnamese Meaning">
+                <UTextarea
+                  v-model="meaning.vietnameseMeaning"
+                  placeholder="Enter Vietnamese meaning"
+                  class="w-full"
+                  :rows="2"
+                />
+              </UFormField>
+
+              <UFormField label="Example Sentence">
+                <UTextarea
+                  v-model="meaning.exampleSentence"
+                  placeholder="Enter example sentence"
+                  class="w-full"
+                  :rows="2"
+                />
+              </UFormField>
+            </div>
+          </div>
+
           <UFormField label="Class Date" required>
             <UInput
               v-model="newWord.classDate"
@@ -150,6 +249,7 @@
               class="w-full"
             />
           </UFormField>
+
           <div v-if="!isSeb && !editingWord" class="text-sm text-gray-500 bg-blue-50 p-3 rounded">
             <strong>Note:</strong> Only Seb can add new words. You can add Vietnamese meaning and example sentences to existing words.
           </div>
@@ -181,6 +281,17 @@
 const { selectedPersonId, selectedPerson } = useSelectedPerson()
 const router = useRouter()
 
+interface VocabularyMeaning {
+  id: number
+  vocabulary_id: number
+  word_type: string
+  english_definition: string | null
+  vietnamese_meaning: string | null
+  example_sentence: string | null
+  created_at: string
+  updated_at: string
+}
+
 interface Vocabulary {
   id: number
   word: string
@@ -192,23 +303,48 @@ interface Vocabulary {
   created_by_name: string
   created_at: string
   updated_at: string
+  meanings?: VocabularyMeaning[]
 }
 
 const currentDate = ref(new Date())
 const vocabulary = ref<Vocabulary[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const loadingAI = ref(false)
 const showAddModal = ref(false)
 const editingWord = ref<Vocabulary | null>(null)
 const allPersons = ref<Array<{ id: number; name: string }>>([])
 
+interface WordMeaning {
+  wordType: string
+  englishDefinition: string
+  vietnameseMeaning: string
+  exampleSentence: string
+}
+
 const newWord = ref({
   word: '',
-  englishDefinition: '',
-  vietnameseMeaning: '',
-  exampleSentence: '',
+  meanings: [] as WordMeaning[],
   classDate: new Date().toISOString().split('T')[0]
 })
+
+const wordTypes = [
+  { label: 'Noun (Danh từ)', value: 'noun' },
+  { label: 'Verb (Động từ)', value: 'verb' },
+  { label: 'Adjective (Tính từ)', value: 'adjective' },
+  { label: 'Adverb (Trạng từ)', value: 'adverb' },
+  { label: 'Pronoun (Đại từ)', value: 'pronoun' },
+  { label: 'Preposition (Giới từ)', value: 'preposition' },
+  { label: 'Conjunction (Liên từ)', value: 'conjunction' },
+  { label: 'Interjection (Thán từ)', value: 'interjection' },
+  { label: 'Article (Mạo từ)', value: 'article' },
+  { label: 'Determiner (Từ hạn định)', value: 'determiner' },
+  { label: 'Modal Verb (Động từ khuyết thiếu)', value: 'modal_verb' },
+  { label: 'Auxiliary Verb (Trợ động từ)', value: 'auxiliary_verb' },
+  { label: 'Phrasal Verb (Cụm động từ)', value: 'phrasal_verb' },
+  { label: 'Idiom (Thành ngữ)', value: 'idiom' },
+  { label: 'Other (Khác)', value: 'other' }
+]
 
 const isSeb = computed(() => {
   return selectedPerson.value?.name === 'Seb'
@@ -223,23 +359,77 @@ const currentMonthYear = computed(() => {
 
 const canSaveWord = computed(() => {
   if (editingWord.value) {
-    // When editing, at least one field should be filled
+    // When editing, at least word or one meaning should be filled
     return (
       newWord.value.word.trim() ||
-      newWord.value.englishDefinition.trim() ||
-      newWord.value.vietnameseMeaning.trim() ||
-      newWord.value.exampleSentence.trim()
+      newWord.value.meanings.some(m => 
+        m.englishDefinition.trim() || 
+        m.vietnameseMeaning.trim() || 
+        m.exampleSentence.trim()
+      )
     )
   } else {
-    // When adding new word, Seb must provide word
+    // When adding new word, Seb must provide word and at least one meaning
     if (isSeb.value) {
-      return newWord.value.word.trim() && newWord.value.classDate
+      return (
+        newWord.value.word.trim() && 
+        newWord.value.classDate &&
+        newWord.value.meanings.length > 0 &&
+        newWord.value.meanings.some(m => m.wordType.trim())
+      )
     } else {
       // Others can only add meaning/sentence to existing words (handled differently)
       return false
     }
   }
 })
+
+const addMeaning = () => {
+  newWord.value.meanings.push({
+    wordType: '',
+    englishDefinition: '',
+    vietnameseMeaning: '',
+    exampleSentence: ''
+  })
+}
+
+const removeMeaning = (index: number) => {
+  newWord.value.meanings.splice(index, 1)
+}
+
+const getMeaningsFromAI = async () => {
+  if (!newWord.value.word.trim()) {
+    alert('Please enter a word first')
+    return
+  }
+
+  loadingAI.value = true
+  try {
+    const response = await $fetch<{ meanings: WordMeaning[] }>('/api/vocabulary/ai-meanings', {
+      method: 'POST',
+      body: {
+        word: newWord.value.word.trim()
+      }
+    })
+
+    if (response.meanings && response.meanings.length > 0) {
+      // Clear existing meanings and add AI-generated ones
+      newWord.value.meanings = response.meanings.map(m => ({
+        wordType: m.wordType || '',
+        englishDefinition: m.englishDefinition || '',
+        vietnameseMeaning: m.vietnameseMeaning || '',
+        exampleSentence: m.exampleSentence || ''
+      }))
+    } else {
+      alert('No meanings found. Please add manually.')
+    }
+  } catch (error: any) {
+    console.error('Failed to get meanings from AI:', error)
+    alert('Failed to get meanings from AI: ' + (error.message || 'Unknown error'))
+  } finally {
+    loadingAI.value = false
+  }
+}
 
 const groupedVocabulary = computed(() => {
   const grouped: Record<string, Vocabulary[]> = {}
@@ -303,15 +493,52 @@ const loadVocabulary = async () => {
   }
 }
 
-const editWord = (word: Vocabulary) => {
+const editWord = async (word: Vocabulary) => {
   editingWord.value = word
+  
+  // Load meanings for this word
+  let meanings: VocabularyMeaning[] = []
+  if (word.meanings && word.meanings.length > 0) {
+    meanings = word.meanings
+  } else {
+    // Try to load meanings from API
+    try {
+      const loadedMeanings = await $fetch<VocabularyMeaning[]>(`/api/vocabulary/${word.id}/meanings`)
+      meanings = loadedMeanings || []
+    } catch (error) {
+      console.error('Failed to load meanings:', error)
+      // If no meanings exist, create one from old format
+      if (word.english_definition || word.vietnamese_meaning || word.example_sentence) {
+        meanings = [{
+          id: 0,
+          vocabulary_id: word.id,
+          word_type: 'general',
+          english_definition: word.english_definition,
+          vietnamese_meaning: word.vietnamese_meaning,
+          example_sentence: word.example_sentence,
+          created_at: '',
+          updated_at: ''
+        }]
+      }
+    }
+  }
+  
   newWord.value = {
     word: word.word,
-    englishDefinition: word.english_definition || '',
-    vietnameseMeaning: word.vietnamese_meaning || '',
-    exampleSentence: word.example_sentence || '',
+    meanings: meanings.map(m => ({
+      wordType: m.word_type,
+      englishDefinition: m.english_definition || '',
+      vietnameseMeaning: m.vietnamese_meaning || '',
+      exampleSentence: m.example_sentence || ''
+    })),
     classDate: word.class_date
   }
+  
+  // If no meanings, add one empty meaning
+  if (newWord.value.meanings.length === 0) {
+    addMeaning()
+  }
+  
   showAddModal.value = true
 }
 
@@ -321,14 +548,12 @@ const saveWord = async () => {
   saving.value = true
   try {
     if (editingWord.value) {
-      // Update existing word
+      // Update existing word and meanings
       await $fetch(`/api/vocabulary/${editingWord.value.id}`, {
         method: 'PUT',
         body: {
           word: newWord.value.word,
-          englishDefinition: newWord.value.englishDefinition,
-          vietnameseMeaning: newWord.value.vietnameseMeaning,
-          exampleSentence: newWord.value.exampleSentence
+          meanings: newWord.value.meanings.filter(m => m.wordType.trim())
         }
       })
     } else {
@@ -341,9 +566,7 @@ const saveWord = async () => {
         method: 'POST',
         body: {
           word: newWord.value.word,
-          englishDefinition: newWord.value.englishDefinition,
-          vietnameseMeaning: newWord.value.vietnameseMeaning,
-          exampleSentence: newWord.value.exampleSentence,
+          meanings: newWord.value.meanings.filter(m => m.wordType.trim()),
           classDate: newWord.value.classDate,
           userId: selectedPersonId.value
         }
@@ -365,11 +588,11 @@ const resetForm = () => {
   editingWord.value = null
   newWord.value = {
     word: '',
-    englishDefinition: '',
-    vietnameseMeaning: '',
-    exampleSentence: '',
+    meanings: [],
     classDate: new Date().toISOString().split('T')[0]
   }
+  // Add one empty meaning by default
+  addMeaning()
 }
 
 const deleteWord = async (id: number) => {

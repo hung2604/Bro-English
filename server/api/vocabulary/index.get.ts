@@ -25,11 +25,27 @@ export default defineEventHandler(async (event) => {
 
     if (error) throw error
 
-    // Map the result to include created_by_name
-    const vocabulary = (data || []).map((item: any) => ({
-      ...item,
-      created_by_name: item.persons?.name || null,
-    }))
+    // Map the result to include created_by_name and fetch meanings
+    const vocabulary = await Promise.all(
+      (data || []).map(async (item: any) => {
+        // Fetch meanings for this vocabulary item
+        const { data: meanings, error: meaningsError } = await supabase
+          .from('vocabulary_meanings')
+          .select('*')
+          .eq('vocabulary_id', item.id)
+          .order('word_type', { ascending: true })
+
+        if (meaningsError) {
+          console.error(`Failed to fetch meanings for vocabulary ${item.id}:`, meaningsError)
+        }
+
+        return {
+          ...item,
+          created_by_name: item.persons?.name || null,
+          meanings: meanings || [],
+        }
+      })
+    )
 
     return vocabulary
   } catch (error: any) {

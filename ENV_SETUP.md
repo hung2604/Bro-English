@@ -18,6 +18,14 @@ SUPABASE_ANON_KEY=your-anon-key-here
 
 > **Lưu ý:** Service Role Key có quyền cao hơn và bypass Row Level Security (RLS). Nên dùng cho server-side. Anon Key có quyền hạn chế hơn nhưng an toàn hơn.
 
+### 2. Gemini AI Configuration (TÙY CHỌN - Cho tính năng AI)
+
+```env
+GEMINI_API_KEY=your-gemini-api-key-here
+```
+
+> **Lưu ý:** Gemini API key chỉ cần thiết nếu bạn muốn sử dụng tính năng tự động điền từ loại và nghĩa bằng AI. Nếu không có key này, tính năng AI sẽ không hoạt động nhưng các tính năng khác vẫn bình thường.
+
 ## Cách lấy các keys
 
 ### Bước 1: Tạo Supabase Project
@@ -47,6 +55,9 @@ SUPABASE_ANON_KEY=your-anon-key-here
 # Supabase Configuration
 SUPABASE_URL=https://xxxxxxxxxxxxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh4eHh4eHh4eHh4eHgiLCJyb2xlIjoic2VydmljZV9yb2xlIiwiaWF0IjoxNjQxMjM0NTY3LCJleHAiOjE5NTY4MTA1Njd9.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Gemini AI (Optional - for AI-powered vocabulary meanings)
+GEMINI_API_KEY=your-gemini-api-key-here
 ```
 
 > ⚠️ **QUAN TRỌNG:** 
@@ -66,11 +77,26 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhY
    - Click **Save**
 
 4. Lặp lại cho `SUPABASE_SERVICE_ROLE_KEY`
+5. Lặp lại cho `GEMINI_API_KEY` (nếu sử dụng tính năng AI)
+
+### Bước 3: Lấy Gemini API Key (Tùy chọn)
+
+1. Truy cập https://aistudio.google.com/app/apikey
+2. Đăng nhập bằng Google account
+3. Click **"Create API Key"** hoặc **"Get API Key"**
+4. Chọn project hoặc tạo project mới
+5. Copy API key → Thêm vào `.env` file với tên `GEMINI_API_KEY`
+
+> **Lưu ý:** 
+> - Gemini API có free tier với giới hạn requests
+> - API key này chỉ dùng cho server-side, không expose ra client
+> - Nếu không có key này, tính năng "Get Meanings from AI" sẽ không hoạt động
 
 ### Cách 2: Qua Vercel CLI
 ```bash
 vercel env add SUPABASE_URL
 vercel env add SUPABASE_SERVICE_ROLE_KEY
+vercel env add GEMINI_API_KEY  # Optional
 ```
 
 ## Kiểm tra Environment Variables
@@ -124,11 +150,20 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhY
 
 ## Tóm tắt
 
-**Cần set 2 biến:**
+**Cần set 2 biến (bắt buộc):**
 1. `SUPABASE_URL` - Project URL từ Supabase dashboard
 2. `SUPABASE_SERVICE_ROLE_KEY` - Service role key từ Supabase API settings
+
+**Tùy chọn (cho tính năng AI):**
+3. `GEMINI_API_KEY` - Gemini API key từ Google AI Studio
 
 **Nơi set:**
 - Local: File `.env` trong root directory
 - Vercel: Environment Variables trong Vercel dashboard
+
+**Lưu ý về Gemini AI:**
+- Tính năng AI tự động điền từ loại và nghĩa chỉ hoạt động khi có `GEMINI_API_KEY`
+- Nếu không có key, bạn vẫn có thể thêm từ và nghĩa thủ công
+- Gemini API có free tier với giới hạn requests mỗi phút
+
 

@@ -114,3 +114,4 @@ CREATE INDEX IF NOT EXISTS idx_vocabulary_study_vocab ON vocabulary_study(vocabu
 CREATE INDEX IF NOT EXISTS idx_vocabulary_study_next_review ON vocabulary_study(next_review_date);
 CREATE INDEX IF NOT EXISTS idx_vocabulary_reviews_study ON vocabulary_reviews(vocabulary_study_id);
 
+

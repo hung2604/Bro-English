@@ -25,7 +25,7 @@ export const db = {
 
 // Initialize default persons
 async function initializeDefaultPersons() {
-  const defaultPersons = ['Ania', 'Simon', 'Heiry', 'James', 'David']
+  const defaultPersons = ['Ania', 'Simon', 'Hairy', 'James', 'David']
   const teachers = ['Seb', 'Charlotte']
   const allPersons = [...defaultPersons, ...teachers]
 

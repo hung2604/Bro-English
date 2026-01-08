@@ -101,7 +101,7 @@ const { selectedPersonId } = useSelectedPerson()
 const newPersonName = ref('')
 const loading = ref(false)
 const allPersons = ref<Person[]>([])
-const defaultPersonNames = ['Ania', 'Simon', 'Heiry', 'James', 'David']
+const defaultPersonNames = ['Ania', 'Simon', 'Hairy', 'James', 'David']
 const studyStats = ref<{ newWords: number; dueToday: number } | null>(null)
 const studySettings = ref<{ new_words_per_day: number; max_reviews_per_day: number } | null>(null)
 
