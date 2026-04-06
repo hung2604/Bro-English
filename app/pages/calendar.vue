@@ -50,38 +50,54 @@
               ></div>
 
               <!-- Calendar days -->
-              <button
+              <div
                 v-for="day in daysInMonth"
                 :key="day"
-                @click="toggleClass(day)"
+                role="button"
+                tabindex="0"
                 :class="[
-                  'aspect-square rounded-lg border-2 transition-all cursor-pointer',
+                  'aspect-square rounded-lg border-2 transition-all cursor-pointer relative flex flex-col items-center justify-center',
                   getDayClass(day),
                 ]"
+                @click="openAddExpenseModal(day)"
+                @keydown.enter.prevent="openAddExpenseModal(day)"
+                @keydown.space.prevent="openAddExpenseModal(day)"
               >
-                <div class="flex flex-col items-center justify-center h-full">
+                <button
+                  type="button"
+                  class="absolute top-0.5 right-0.5 z-10 flex h-6 w-6 items-center justify-center rounded-md border border-gray-300/80 bg-white/90 text-[10px] font-bold shadow-sm hover:bg-white disabled:opacity-50"
+                  :disabled="loading"
+                  title="Bật/tắt có học (không mở form chi phí)"
+                  @click.stop="toggleClass(day)"
+                >
+                  <span v-if="getClassStatus(day) === true">✓</span>
+                  <span v-else-if="getClassStatus(day) === false">✗</span>
+                  <span v-else class="text-gray-400">—</span>
+                </button>
+                <div class="flex flex-col items-center justify-center h-full px-1 pb-1 pt-5">
                   <span class="text-sm font-medium">{{ day }}</span>
                   <span
-                    v-if="getClassStatus(day) !== null"
-                    class="text-xs mt-1"
-                  >
-                    {{ getClassStatus(day) ? '✓' : '✗' }}
-                  </span>
-                  <span
                     v-if="getVocabularyCount(day) > 0"
-                    class="text-xs mt-0.5 px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full font-semibold"
+                    class="text-xs mt-0.5 px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full font-semibold max-w-full truncate"
                     :title="`${getVocabularyCount(day)} new word${getVocabularyCount(day) > 1 ? 's' : ''}`"
                   >
                     {{ getVocabularyCount(day) }} 📚
                   </span>
+                  <span
+                    v-if="getExpenseDailyTotal(day) > 0"
+                    class="text-[10px] mt-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded-full font-semibold max-w-full truncate"
+                    :title="`Tổng chi: ${formatCurrency(getExpenseDailyTotal(day))}`"
+                  >
+                    {{ formatCurrencyCompact(getExpenseDailyTotal(day)) }} 💰
+                  </span>
                 </div>
-              </button>
+              </div>
             </div>
 
             <!-- Legend -->
             <div class="mt-6">
               <p class="text-sm text-gray-600 mb-3">
-                <strong>Note:</strong> Monday and Thursday are marked as having class by default. You can click on any day to toggle on/off for your account.
+                <strong>Note:</strong> Monday and Thursday are marked as having class by default. Click a day to add an expense (paid by defaults to you). Use the small corner button on a day to toggle class on/off.
               </p>
               <div class="flex items-center gap-6 text-sm">
                 <div class="flex items-center gap-2">
@@ -189,6 +205,82 @@
         </div>
       </div>
     </div>
+
+    <!-- Add expense (from calendar day click) -->
+    <UModal v-model:open="showExpenseModal" title="Add expense">
+      <template #body>
+        <div class="space-y-4">
+          <UFormField label="Description" required>
+            <UInput v-model="newExpense.description" placeholder="Enter description" />
+          </UFormField>
+          <UFormField label="Amount" required>
+            <UInput
+              v-model="newExpense.amount"
+              type="number"
+              placeholder="Enter amount"
+            />
+          </UFormField>
+          <UFormField label="Date" required>
+            <UInput
+              v-model="newExpense.date"
+              type="date"
+            />
+          </UFormField>
+          <UFormField label="Type">
+            <USelect
+              v-model="newExpense.expenseType"
+              :options="expenseTypes"
+            />
+          </UFormField>
+          <UFormField label="Participants" required>
+            <div class="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded p-3">
+              <div
+                v-for="person in allPersons"
+                :key="person.id"
+                class="flex items-center gap-2"
+              >
+                <UCheckbox
+                  :id="`cal-person-${person.id}`"
+                  :model-value="newExpense.participantIds.includes(person.id)"
+                  @update:model-value="toggleParticipant(person.id)"
+                />
+                <label :for="`cal-person-${person.id}`" class="text-sm text-gray-700 cursor-pointer">
+                  {{ person.name }}
+                </label>
+              </div>
+            </div>
+          </UFormField>
+          <UFormField label="Paid by">
+            <USelect
+              :model-value="newExpense.paidBy ?? undefined"
+              :items="personOptions"
+              value-key="value"
+              option-attribute="label"
+              placeholder="Select who paid"
+              @update:model-value="newExpense.paidBy = $event ?? null"
+            />
+          </UFormField>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <UButton
+            variant="ghost"
+            color="neutral"
+            @click="resetExpenseForm(); showExpenseModal = false"
+          >
+            Cancel
+          </UButton>
+          <UButton
+            color="primary"
+            :disabled="!canAddExpense || addingExpense"
+            @click="saveExpenseFromCalendar"
+          >
+            {{ addingExpense ? 'Adding...' : 'Add' }}
+          </UButton>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>
 
@@ -209,6 +301,11 @@ interface SessionHistory {
   has_class: number
   previous_has_class: number | null
   created_at: string
+}
+
+interface Person {
+  id: number
+  name: string
 }
 
 const route = useRoute()
@@ -270,6 +367,35 @@ const loading = ref(false)
 const history = ref<SessionHistory[]>([])
 const historyLoading = ref(false)
 const vocabularyStats = ref<Map<string, number>>(new Map())
+const expenseDailyTotals = ref<Map<string, number>>(new Map())
+
+const showExpenseModal = ref(false)
+const addingExpense = ref(false)
+const allPersons = ref<Person[]>([])
+const expenseTypes = [
+  { label: 'Tuition', value: 'tuition' },
+  { label: 'Other', value: 'other' }
+]
+const newExpense = ref({
+  description: '',
+  amount: '',
+  date: new Date().toISOString().split('T')[0],
+  expenseType: 'other',
+  participantIds: [] as number[],
+  paidBy: null as number | null
+})
+
+const personOptions = computed(() =>
+  allPersons.value.map(p => ({ label: p.name, value: p.id }))
+)
+
+const canAddExpense = computed(() => (
+  newExpense.value.description.trim() &&
+  newExpense.value.amount &&
+  parseFloat(newExpense.value.amount) > 0 &&
+  newExpense.value.date &&
+  newExpense.value.participantIds.length > 0
+))
 
 // Removed - no longer needed since sessions are global
 
@@ -326,6 +452,27 @@ const getDateString = (day: number): string => {
 const getVocabularyCount = (day: number): number => {
   const dateStr = getDateString(day)
   return vocabularyStats.value.get(dateStr) || 0
+}
+
+const getExpenseDailyTotal = (day: number): number => {
+  const dateStr = getDateString(day)
+  return expenseDailyTotals.value.get(dateStr) || 0
+}
+
+const formatCurrency = (amount: number): string => {
+  return new Intl.NumberFormat('vi-VN', {
+    style: 'currency',
+    currency: 'VND'
+  }).format(amount)
+}
+
+const formatCurrencyCompact = (amount: number): string => {
+  return new Intl.NumberFormat('vi-VN', {
+    style: 'currency',
+    currency: 'VND',
+    notation: 'compact',
+    maximumFractionDigits: 0
+  }).format(amount)
 }
 
 const getClassStatus = (day: number): boolean | null => {
@@ -416,7 +563,6 @@ const previousMonth = () => {
     1
   )
   loadSessions()
-  loadVocabularyStats()
 }
 
 const nextMonth = () => {
@@ -426,7 +572,6 @@ const nextMonth = () => {
     1
   )
   loadSessions()
-  loadVocabularyStats()
 }
 
 const loadSessions = async () => {
@@ -470,8 +615,9 @@ const loadSessions = async () => {
     
     // Load history for the month
     await loadHistory()
-    // Load vocabulary stats for the month
+    // Load vocabulary stats and expense totals for the month
     await loadVocabularyStats()
+    await loadExpenseDailyTotals()
   } catch (error) {
     console.error('Failed to load sessions:', error)
   }
@@ -512,6 +658,89 @@ const loadVocabularyStats = async () => {
   } catch (error) {
     console.error('Failed to load vocabulary stats:', error)
     vocabularyStats.value = new Map()
+  }
+}
+
+const loadExpenseDailyTotals = async () => {
+  try {
+    const year = currentDate.value.getFullYear()
+    const month = currentDate.value.getMonth() + 1
+    const totals = await $fetch<Record<string, number>>('/api/expenses/daily-totals', {
+      query: { year, month }
+    })
+    expenseDailyTotals.value = new Map(Object.entries(totals))
+  } catch (error) {
+    console.error('Failed to load expense daily totals:', error)
+    expenseDailyTotals.value = new Map()
+  }
+}
+
+const loadPersonsForExpenses = async () => {
+  try {
+    allPersons.value = await $fetch<Person[]>('/api/persons')
+    const defaultNames = ['Seb', 'Ania', 'Simon', 'Hairy', 'James', 'David']
+    const defaultPersons = allPersons.value.filter(p => defaultNames.includes(p.name))
+    newExpense.value.participantIds = defaultPersons.map(p => p.id)
+  } catch (error) {
+    console.error('Failed to load persons:', error)
+  }
+}
+
+const resetExpenseForm = () => {
+  newExpense.value = {
+    description: '',
+    amount: '',
+    date: new Date().toISOString().split('T')[0],
+    expenseType: 'other',
+    participantIds: allPersons.value
+      .filter(p => ['Seb', 'Ania', 'Simon', 'Hairy', 'James', 'David'].includes(p.name))
+      .map(p => p.id),
+    paidBy: null
+  }
+}
+
+const toggleParticipant = (personId: number) => {
+  const ids = newExpense.value.participantIds
+  const index = ids.indexOf(personId)
+  if (index > -1) {
+    ids.splice(index, 1)
+  } else {
+    ids.push(personId)
+  }
+}
+
+const openAddExpenseModal = (day: number) => {
+  resetExpenseForm()
+  newExpense.value.date = getDateString(day)
+  if (selectedPersonId.value != null) {
+    newExpense.value.paidBy = selectedPersonId.value
+  }
+  showExpenseModal.value = true
+}
+
+const saveExpenseFromCalendar = async () => {
+  if (!canAddExpense.value) return
+  addingExpense.value = true
+  try {
+    await $fetch('/api/expenses', {
+      method: 'POST',
+      body: {
+        description: newExpense.value.description,
+        amount: parseFloat(newExpense.value.amount),
+        date: newExpense.value.date,
+        expenseType: newExpense.value.expenseType,
+        participantIds: newExpense.value.participantIds,
+        paidBy: newExpense.value.paidBy
+      }
+    })
+    resetExpenseForm()
+    showExpenseModal.value = false
+    await loadExpenseDailyTotals()
+  } catch (error) {
+    console.error('Failed to save expense:', error)
+    alert('Failed to save expense')
+  } finally {
+    addingExpense.value = false
   }
 }
 
@@ -566,6 +795,7 @@ onMounted(async () => {
     })
   }
   
+  await loadPersonsForExpenses()
   await loadSessions()
 })
 </script>
