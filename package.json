@@ -7,15 +7,16 @@
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "migrate:mongo": "node scripts/migrate-supabase-to-mongo.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@nuxt/eslint": "^1.11.0",
     "@nuxt/image": "^2.0.0",
     "@nuxt/ui": "^4.2.1",
-    "@supabase/supabase-js": "^2.39.0",
     "eslint": "^9.39.1",
+    "mongodb": "^7.6.0",
     "nuxt": "^4.2.1",
     "typescript": "^5.9.3",
     "vue": "^3.5.25",

@@ -1,4 +1,5 @@
-import { supabase } from '../../utils/db'
+import { col, nextId } from '../../utils/db'
+import { stripId, isDuplicateKey } from '../../utils/mongo-helpers'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -7,35 +8,33 @@ export default defineEventHandler(async (event) => {
   if (!name || typeof name !== 'string' || name.trim() === '') {
     throw createError({
       statusCode: 400,
-      message: 'Name is required'
+      message: 'Name is required',
     })
   }
 
   try {
-    const { data, error } = await supabase
-      .from('persons')
-      .insert({ name: name.trim() })
-      .select()
-      .single()
-
-    if (error) {
-      if (error.code === '23505') { // Unique constraint violation in PostgreSQL
-        throw createError({
-          statusCode: 409,
-          message: 'Person with this name already exists'
-        })
-      }
-      throw error
+    const persons = await col('persons')
+    const id = await nextId('persons')
+    const doc = {
+      id,
+      name: name.trim(),
+      created_at: new Date().toISOString(),
     }
-
-    return data
+    await persons.insertOne(doc as any)
+    return stripId(doc as any)
   } catch (error: any) {
     if (error.statusCode) {
       throw error
     }
+    if (isDuplicateKey(error)) {
+      throw createError({
+        statusCode: 409,
+        message: 'Person with this name already exists',
+      })
+    }
     throw createError({
       statusCode: 500,
-      message: 'Failed to create person'
+      message: 'Failed to create person',
     })
   }
 })

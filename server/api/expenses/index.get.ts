@@ -1,47 +1,58 @@
-import { supabase } from '../../utils/db'
+import { col } from '../../utils/db'
+import { monthRegex, stripId, personNameMap } from '../../utils/mongo-helpers'
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
   const { year, month } = query
 
   try {
-    let queryBuilder = supabase
-      .from('expenses')
-      .select(`
-        *,
-        expense_participants(person_id, persons(name)),
-        persons!expenses_paid_by_fkey(name)
-      `)
-      .order('date', { ascending: false })
-      .order('created_at', { ascending: false })
+    const expensesCol = await col('expenses')
+    const participantsCol = await col('expense_participants')
+    const personsCol = await col('persons')
+
+    let filter: Record<string, any> = {}
+    let limit = 0
 
     if (year && month) {
-      const monthPrefix = `${year}-${String(month).padStart(2, '0')}-`
-      queryBuilder = queryBuilder.like('date', `${monthPrefix}%`)
+      filter = { date: monthRegex(year as string, month as string) }
     } else {
-      queryBuilder = queryBuilder.limit(100)
+      limit = 100
     }
 
-    const { data, error } = await queryBuilder
+    let cursor = expensesCol.find(filter).sort({ date: -1, created_at: -1 })
+    if (limit > 0) cursor = cursor.limit(limit)
 
-    if (error) throw error
+    const expenses = await cursor.toArray()
+    const persons = await personsCol.find({}).toArray()
+    const nameMap = personNameMap(persons as any)
 
-    // Map the result to match the expected format
-    const expenses = (data || []).map((expense: any) => {
-      const participants = expense.expense_participants || []
+    const expenseIds = expenses.map((e: any) => e.id)
+    const allParticipants = expenseIds.length > 0
+      ? await participantsCol.find({ expense_id: { $in: expenseIds } }).toArray()
+      : []
+
+    const participantsByExpense = new Map<number, any[]>()
+    for (const ep of allParticipants) {
+      const list = participantsByExpense.get(ep.expense_id) || []
+      list.push(ep)
+      participantsByExpense.set(ep.expense_id, list)
+    }
+
+    return stripId(expenses).map((expense: any) => {
+      const participants = participantsByExpense.get(expense.id) || []
       return {
         ...expense,
         participant_ids: participants.map((ep: any) => ep.person_id),
-        participant_names: participants.map((ep: any) => ep.persons?.name || '').filter(Boolean),
-        paid_by_name: expense.persons?.name || null,
+        participant_names: participants
+          .map((ep: any) => nameMap.get(ep.person_id) || '')
+          .filter(Boolean),
+        paid_by_name: expense.paid_by ? nameMap.get(expense.paid_by) || null : null,
       }
     })
-
-    return expenses
-  } catch (error: any) {
+  } catch {
     throw createError({
       statusCode: 500,
-      message: 'Failed to fetch expenses'
+      message: 'Failed to fetch expenses',
     })
   }
 })

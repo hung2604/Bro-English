@@ -1,4 +1,4 @@
-import { supabase } from '../../utils/db'
+import { col } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
@@ -6,26 +6,24 @@ export default defineEventHandler(async (event) => {
   if (!id) {
     throw createError({
       statusCode: 400,
-      message: 'Expense ID is required'
+      message: 'Expense ID is required',
     })
   }
 
   try {
-    const { error } = await supabase
-      .from('expenses')
-      .delete()
-      .eq('id', parseInt(id))
+    const expenseId = Number.parseInt(id)
+    const expensesCol = await col('expenses')
+    const participantsCol = await col('expense_participants')
 
-    if (error) throw error
+    await participantsCol.deleteMany({ expense_id: expenseId })
+    await expensesCol.deleteOne({ id: expenseId })
 
     return { success: true }
   } catch (error: any) {
-    if (error.statusCode) {
-      throw error
-    }
+    if (error.statusCode) throw error
     throw createError({
       statusCode: 500,
-      message: 'Failed to delete expense'
+      message: 'Failed to delete expense',
     })
   }
 })

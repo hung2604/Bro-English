@@ -1,4 +1,5 @@
-import { supabase } from '../../utils/db'
+import { col, nextId } from '../../utils/db'
+import { monthRegex, stripId } from '../../utils/mongo-helpers'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -7,86 +8,61 @@ export default defineEventHandler(async (event) => {
   if (!year || !month) {
     throw createError({
       statusCode: 400,
-      message: 'Year and month are required'
+      message: 'Year and month are required',
     })
   }
 
   try {
-    // Check if month already has any sessions
-    const monthPrefix = `${year}-${String(month).padStart(2, '0')}-`
-    const { data: existingSessions, error: checkError } = await supabase
-      .from('class_sessions')
-      .select('date')
-      .like('date', `${monthPrefix}%`)
-      .limit(1)
+    const sessionsCol = await col('class_sessions')
+    const regex = monthRegex(year, month)
 
-    if (checkError) throw checkError
+    const existingSessions = await sessionsCol.find({ date: regex }).limit(1).toArray()
 
-    // If month already has sessions, don't initialize (preserve user changes)
-    if (existingSessions && existingSessions.length > 0) {
-      // Return existing sessions without modifying them
-      const { data: allSessions, error: fetchError } = await supabase
-        .from('class_sessions')
-        .select('*')
-        .like('date', `${monthPrefix}%`)
-        .order('date')
-
-      if (fetchError) throw fetchError
-
+    if (existingSessions.length > 0) {
+      const allSessions = await sessionsCol.find({ date: regex }).sort({ date: 1 }).toArray()
       return {
         success: true,
-        sessions: allSessions || [],
+        sessions: stripId(allSessions),
         initialized: 0,
         message: 'Month already has sessions, skipping initialization',
       }
     }
 
     const daysInMonth = new Date(year, month, 0).getDate()
-    const sessions: Array<{ date: string }> = []
+    const now = new Date().toISOString()
+    const toInsert: Array<{ date: string; has_class: number; id: number; created_at: string; updated_at: string }> = []
 
-    // Prepare sessions to insert
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month - 1, day)
-      const dayOfWeek = date.getDay() // 0 = Sunday, 1 = Monday, etc.
-
-      // Monday (1) or Thursday (4) - default to has_class = 1
+      const dayOfWeek = date.getDay()
       if (dayOfWeek === 1 || dayOfWeek === 4) {
         const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-        sessions.push({ date: dateStr })
+        const id = await nextId('class_sessions')
+        toInsert.push({
+          id,
+          date: dateStr,
+          has_class: 1,
+          created_at: now,
+          updated_at: now,
+        })
       }
     }
 
-    // Insert sessions (only if month is empty)
-    const sessionsToInsert = sessions.map(s => ({
-      date: s.date,
-      has_class: 1,
-      updated_at: new Date().toISOString(),
-    }))
+    if (toInsert.length > 0) {
+      await sessionsCol.insertMany(toInsert as any[])
+    }
 
-    const { error: insertError } = await supabase
-      .from('class_sessions')
-      .insert(sessionsToInsert)
-
-    if (insertError) throw insertError
-
-    // Return all sessions for the month (global)
-    const { data: allSessions, error: fetchError } = await supabase
-      .from('class_sessions')
-      .select('*')
-      .like('date', `${monthPrefix}%`)
-      .order('date')
-
-    if (fetchError) throw fetchError
+    const allSessions = await sessionsCol.find({ date: regex }).sort({ date: 1 }).toArray()
 
     return {
       success: true,
-      sessions: allSessions || [],
-      initialized: sessions.length,
+      sessions: stripId(allSessions),
+      initialized: toInsert.length,
     }
-  } catch (error: any) {
+  } catch {
     throw createError({
       statusCode: 500,
-      message: 'Failed to initialize sessions'
+      message: 'Failed to initialize sessions',
     })
   }
 })

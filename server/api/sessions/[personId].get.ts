@@ -1,4 +1,5 @@
-import { supabase } from '../../utils/db'
+import { col } from '../../utils/db'
+import { stripId } from '../../utils/mongo-helpers'
 
 export default defineEventHandler(async (event) => {
   const personId = getRouterParam(event, 'personId')
@@ -6,24 +7,12 @@ export default defineEventHandler(async (event) => {
   if (!personId) {
     throw createError({
       statusCode: 400,
-      message: 'Person ID is required'
+      message: 'Person ID is required',
     })
   }
 
-  // Note: class_sessions table doesn't have person_id in the schema
-  // This endpoint might need to be adjusted based on your actual schema
-  // For now, returning all sessions (global)
-  const { data, error } = await supabase
-    .from('class_sessions')
-    .select('*')
-    .order('date')
-
-  if (error) {
-    throw createError({
-      statusCode: 500,
-      message: 'Failed to fetch sessions'
-    })
-  }
-
-  return data || []
+  // class_sessions is global (no person_id)
+  const sessions = await col('class_sessions')
+  const data = await sessions.find({}).sort({ date: 1 }).toArray()
+  return stripId(data)
 })

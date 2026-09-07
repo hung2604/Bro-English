@@ -1,4 +1,5 @@
-import { supabase } from '../../../utils/db'
+import { col } from '../../../utils/db'
+import { stripId } from '../../../utils/mongo-helpers'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
@@ -6,25 +7,22 @@ export default defineEventHandler(async (event) => {
   if (!id) {
     throw createError({
       statusCode: 400,
-      message: 'Vocabulary ID is required'
+      message: 'Vocabulary ID is required',
     })
   }
 
   try {
-    const { data, error } = await supabase
-      .from('vocabulary_meanings')
-      .select('*')
-      .eq('vocabulary_id', parseInt(id))
-      .order('word_type', { ascending: true })
+    const meaningsCol = await col('vocabulary_meanings')
+    const data = await meaningsCol
+      .find({ vocabulary_id: Number.parseInt(id) })
+      .sort({ word_type: 1 })
+      .toArray()
 
-    if (error) throw error
-
-    return data || []
-  } catch (error: any) {
+    return stripId(data)
+  } catch {
     throw createError({
       statusCode: 500,
-      message: 'Failed to fetch vocabulary meanings'
+      message: 'Failed to fetch vocabulary meanings',
     })
   }
 })
-

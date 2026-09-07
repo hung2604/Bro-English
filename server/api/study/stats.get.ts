@@ -1,4 +1,4 @@
-import { supabase } from '../../utils/db'
+import { col } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
@@ -7,70 +7,51 @@ export default defineEventHandler(async (event) => {
   if (!userId) {
     throw createError({
       statusCode: 400,
-      message: 'User ID is required'
+      message: 'User ID is required',
     })
   }
 
   try {
-    const personId = parseInt(userId as string)
+    const personId = Number.parseInt(userId as string)
     const todayResult = new Date().toISOString().split('T')[0]
     if (!todayResult) {
       throw new Error('Failed to get today date')
     }
     const today: string = todayResult
 
-    // Total vocabulary count
-    const { count: totalVocabCount } = await supabase
-      .from('vocabulary')
-      .select('*', { count: 'exact', head: true })
+    const vocabCol = await col('vocabulary')
+    const studyCol = await col('vocabulary_study')
+    const reviewsCol = await col('vocabulary_reviews')
 
-    // Words studied by this person
-    const { count: studiedCount } = await supabase
-      .from('vocabulary_study')
-      .select('*', { count: 'exact', head: true })
-      .eq('person_id', personId)
+    const totalVocabCount = await vocabCol.countDocuments()
+    const studiedCount = await studyCol.countDocuments({ person_id: personId })
+    const dueTodayCount = await studyCol.countDocuments({
+      person_id: personId,
+      next_review_date: { $ne: null, $lte: today },
+    })
+    const totalReviewsCount = await reviewsCol.countDocuments({ person_id: personId })
 
-    // Words due for review today
-    const { count: dueTodayCount } = await supabase
-      .from('vocabulary_study')
-      .select('*', { count: 'exact', head: true })
-      .eq('person_id', personId)
-      .not('next_review_date', 'is', null)
-      .lte('next_review_date', today)
-
-    // Total reviews done
-    const { count: totalReviewsCount } = await supabase
-      .from('vocabulary_reviews')
-      .select('*', { count: 'exact', head: true })
-      .eq('person_id', personId)
-
-    // Reviews today
     const todayStart = new Date(today).toISOString()
     const todayEnd = new Date(today + 'T23:59:59').toISOString()
-    const { count: reviewsTodayCount } = await supabase
-      .from('vocabulary_reviews')
-      .select('*', { count: 'exact', head: true })
-      .eq('person_id', personId)
-      .gte('reviewed_at', todayStart)
-      .lte('reviewed_at', todayEnd)
+    const reviewsTodayCount = await reviewsCol.countDocuments({
+      person_id: personId,
+      reviewed_at: { $gte: todayStart, $lte: todayEnd },
+    })
 
-    // Average ease factor
-    const { data: easeFactorData } = await supabase
-      .from('vocabulary_study')
-      .select('ease_factor')
-      .eq('person_id', personId)
+    const easeFactorData = await studyCol
+      .find({ person_id: personId })
+      .project({ ease_factor: 1 })
+      .toArray()
 
-    const avgEaseFactor = easeFactorData && easeFactorData.length > 0
-      ? easeFactorData.reduce((sum, item) => sum + (item.ease_factor || 0), 0) / easeFactorData.length
+    const avgEaseFactor = easeFactorData.length > 0
+      ? easeFactorData.reduce((sum: number, item: any) => sum + (item.ease_factor || 0), 0) / easeFactorData.length
       : null
 
-    // Words mastered
-    const { count: masteredCount } = await supabase
-      .from('vocabulary_study')
-      .select('*', { count: 'exact', head: true })
-      .eq('person_id', personId)
-      .gte('repetitions', 5)
-      .gte('ease_factor', 2.0)
+    const masteredCount = await studyCol.countDocuments({
+      person_id: personId,
+      repetitions: { $gte: 5 },
+      ease_factor: { $gte: 2.0 },
+    })
 
     return {
       totalVocabulary: totalVocabCount || 0,
@@ -79,13 +60,13 @@ export default defineEventHandler(async (event) => {
       dueToday: dueTodayCount || 0,
       totalReviews: totalReviewsCount || 0,
       reviewsToday: reviewsTodayCount || 0,
-      averageEaseFactor: avgEaseFactor ? parseFloat(avgEaseFactor.toFixed(2)) : null,
+      averageEaseFactor: avgEaseFactor ? Number.parseFloat(avgEaseFactor.toFixed(2)) : null,
       masteredWords: masteredCount || 0,
     }
-  } catch (error: any) {
+  } catch {
     throw createError({
       statusCode: 500,
-      message: 'Failed to fetch stats'
+      message: 'Failed to fetch stats',
     })
   }
 })

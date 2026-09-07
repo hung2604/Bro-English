@@ -1,4 +1,5 @@
-import { supabase } from '../../utils/db'
+import { col } from '../../utils/db'
+import { stripId } from '../../utils/mongo-helpers'
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
@@ -7,44 +8,44 @@ export default defineEventHandler(async (event) => {
   if (!userId) {
     throw createError({
       statusCode: 400,
-      message: 'User ID is required'
+      message: 'User ID is required',
     })
   }
 
   try {
-    const personId = parseInt(userId as string)
+    const personId = Number.parseInt(userId as string)
     const todayStrResult = new Date().toISOString().split('T')[0]
     if (!todayStrResult) {
       throw new Error('Failed to get today date')
     }
     const todayStr: string = todayStrResult
 
-    // Get all vocabulary
-    const { data: allVocabData } = await supabase
-      .from('vocabulary')
-      .select('id')
+    const vocabCol = await col('vocabulary')
+    const studyCol = await col('vocabulary_study')
 
-    const allVocab = allVocabData || []
+    const allVocab = await vocabCol.find({}).project({ id: 1 }).toArray()
+    const studiedWordsData = await studyCol.find({ person_id: personId }).toArray()
 
-    // Get studied words
-    const { data: studiedWordsData } = await supabase
-      .from('vocabulary_study')
-      .select(`
-        *,
-        vocabulary(word, class_date)
-      `)
-      .eq('person_id', personId)
-      .order('vocabulary(class_date)', { ascending: false })
-      .order('vocabulary(word)', { ascending: true })
+    const vocabIds = studiedWordsData.map((s: any) => s.vocabulary_id)
+    const vocabs = vocabIds.length > 0
+      ? await vocabCol.find({ id: { $in: vocabIds } }).project({ id: 1, word: 1, class_date: 1 }).toArray()
+      : []
+    const vocabById = new Map(vocabs.map((v: any) => [v.id, v]))
 
-    const studiedWords = (studiedWordsData || []).map((s: any) => ({
-      ...s,
-      vocabulary_id: s.vocabulary_id,
-      word: s.vocabulary?.word,
-      class_date: s.vocabulary?.class_date,
-    }))
+    const studiedWords = stripId(studiedWordsData).map((s: any) => {
+      const vocab = vocabById.get(s.vocabulary_id)
+      return {
+        ...s,
+        vocabulary_id: s.vocabulary_id,
+        word: vocab?.word,
+        class_date: vocab?.class_date,
+      }
+    }).sort((a: any, b: any) => {
+      const dateCmp = String(b.class_date || '').localeCompare(String(a.class_date || ''))
+      if (dateCmp !== 0) return dateCmp
+      return String(a.word || '').localeCompare(String(b.word || ''))
+    })
 
-    // Categorize words
     const newWords = allVocab
       .filter((v: any) => !studiedWords.some((s: any) => s.vocabulary_id === v.id))
       .map((v: any) => ({ vocabulary_id: v.id, status: 'new' }))
@@ -73,7 +74,6 @@ export default defineEventHandler(async (event) => {
         status: 'mastered',
       }))
 
-    // Words due for review
     const dueWords = studiedWords
       .filter((s: any) => s.next_review_date && s.next_review_date <= todayStr)
       .map((s: any) => ({
@@ -110,10 +110,10 @@ export default defineEventHandler(async (event) => {
         due: dueWords.length,
       },
     }
-  } catch (error: any) {
+  } catch {
     throw createError({
       statusCode: 500,
-      message: 'Failed to fetch progress'
+      message: 'Failed to fetch progress',
     })
   }
 })

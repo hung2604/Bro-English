@@ -1,4 +1,5 @@
-import { supabase } from '../../utils/db'
+import { col, nextId } from '../../utils/db'
+import { stripId, personNameMap } from '../../utils/mongo-helpers'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
@@ -8,103 +9,76 @@ export default defineEventHandler(async (event) => {
   if (!id) {
     throw createError({
       statusCode: 400,
-      message: 'Vocabulary ID is required'
+      message: 'Vocabulary ID is required',
     })
   }
 
   try {
-    // Get existing vocabulary
-    const { data: existing, error: fetchError } = await supabase
-      .from('vocabulary')
-      .select('*')
-      .eq('id', parseInt(id))
-      .single()
+    const vocabId = Number.parseInt(id)
+    const vocabCol = await col('vocabulary')
+    const meaningsCol = await col('vocabulary_meanings')
+    const personsCol = await col('persons')
 
-    if (fetchError || !existing) {
+    const existing = await vocabCol.findOne({ id: vocabId })
+    if (!existing) {
       throw createError({
         statusCode: 404,
-        message: 'Vocabulary not found'
+        message: 'Vocabulary not found',
       })
     }
 
-    // Update vocabulary word if provided
-    if (word) {
-      const { error: updateError } = await supabase
-        .from('vocabulary')
-        .update({
-          word: word.trim(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', parseInt(id))
+    const now = new Date().toISOString()
 
-      if (updateError) throw updateError
+    if (word) {
+      await vocabCol.updateOne(
+        { id: vocabId },
+        { $set: { word: word.trim(), updated_at: now } },
+      )
     }
 
-    // Update meanings if provided
     if (meanings && Array.isArray(meanings)) {
-      // Delete all existing meanings
-      const { error: deleteError } = await supabase
-        .from('vocabulary_meanings')
-        .delete()
-        .eq('vocabulary_id', parseInt(id))
+      await meaningsCol.deleteMany({ vocabulary_id: vocabId })
 
-      if (deleteError) throw deleteError
-
-      // Insert new meanings
-      const meaningsToInsert = meanings
-        .filter((m: any) => m.wordType && m.wordType.trim())
-        .map((m: any) => ({
-          vocabulary_id: parseInt(id),
+      const meaningsToInsert = []
+      for (const m of meanings) {
+        if (!m.wordType || !m.wordType.trim()) continue
+        const meaningId = await nextId('vocabulary_meanings')
+        meaningsToInsert.push({
+          id: meaningId,
+          vocabulary_id: vocabId,
           word_type: m.wordType.trim(),
           english_definition: m.englishDefinition?.trim() || null,
           vietnamese_meaning: m.vietnameseMeaning?.trim() || null,
           example_sentence: m.exampleSentence?.trim() || null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }))
+          created_at: now,
+          updated_at: now,
+        })
+      }
 
       if (meaningsToInsert.length > 0) {
-        const { error: insertError } = await supabase
-          .from('vocabulary_meanings')
-          .insert(meaningsToInsert)
-
-        if (insertError) throw insertError
+        await meaningsCol.insertMany(meaningsToInsert as any[])
       }
     }
 
-    // Fetch updated vocabulary with meanings
-    const { data: vocabulary, error: vocabError } = await supabase
-      .from('vocabulary')
-      .select(`
-        *,
-        persons!vocabulary_created_by_fkey(name)
-      `)
-      .eq('id', parseInt(id))
-      .single()
+    const vocabulary = await vocabCol.findOne({ id: vocabId })
+    const vocabularyMeanings = await meaningsCol
+      .find({ vocabulary_id: vocabId })
+      .sort({ word_type: 1 })
+      .toArray()
 
-    if (vocabError) throw vocabError
-
-    // Fetch meanings
-    const { data: vocabularyMeanings, error: meaningsError } = await supabase
-      .from('vocabulary_meanings')
-      .select('*')
-      .eq('vocabulary_id', parseInt(id))
-      .order('word_type', { ascending: true })
-
-    if (meaningsError) throw meaningsError
+    const persons = await personsCol.find({}).toArray()
+    const nameMap = personNameMap(persons as any)
 
     return {
-      ...vocabulary,
-      created_by_name: vocabulary.persons?.name || null,
-      meanings: vocabularyMeanings || [],
+      ...stripId(vocabulary!),
+      created_by_name: nameMap.get(vocabulary!.created_by) || null,
+      meanings: stripId(vocabularyMeanings),
     }
   } catch (error: any) {
-    if (error.statusCode) {
-      throw error
-    }
+    if (error.statusCode) throw error
     throw createError({
       statusCode: 500,
-      message: 'Failed to update vocabulary: ' + (error.message || 'Unknown error')
+      message: 'Failed to update vocabulary: ' + (error.message || 'Unknown error'),
     })
   }
 })

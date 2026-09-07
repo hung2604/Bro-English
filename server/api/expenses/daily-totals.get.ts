@@ -1,4 +1,5 @@
-import { supabase } from '../../utils/db'
+import { col } from '../../utils/db'
+import { monthRegex } from '../../utils/mongo-helpers'
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
@@ -7,31 +8,28 @@ export default defineEventHandler(async (event) => {
   if (!year || !month) {
     throw createError({
       statusCode: 400,
-      message: 'Year and month are required'
+      message: 'Year and month are required',
     })
   }
 
   try {
-    const monthPrefix = `${year}-${String(month).padStart(2, '0')}-`
-
-    const { data, error } = await supabase
-      .from('expenses')
-      .select('date, amount')
-      .like('date', `${monthPrefix}%`)
-
-    if (error) throw error
+    const expensesCol = await col('expenses')
+    const data = await expensesCol
+      .find({ date: monthRegex(year as string, month as string) })
+      .project({ date: 1, amount: 1 })
+      .toArray()
 
     const totalsMap = new Map<string, number>()
-    data?.forEach((row: { date: string; amount: number }) => {
+    data.forEach((row: any) => {
       const prev = totalsMap.get(row.date) || 0
       totalsMap.set(row.date, prev + Number(row.amount))
     })
 
     return Object.fromEntries(totalsMap)
-  } catch (error: any) {
+  } catch {
     throw createError({
       statusCode: 500,
-      message: 'Failed to fetch expense daily totals'
+      message: 'Failed to fetch expense daily totals',
     })
   }
 })

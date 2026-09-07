@@ -1,75 +1,78 @@
-import { supabase } from '../../utils/db'
+import { col, nextId } from '../../utils/db'
+import { stripId, personNameMap } from '../../utils/mongo-helpers'
 
 export default defineEventHandler(async (event) => {
-  const expenseId = getRouterParam(event, 'id')
+  const expenseIdParam = getRouterParam(event, 'id')
   const body = await readBody(event)
   const { description, amount, date, expenseType, participantIds, paidBy } = body
 
-  if (!expenseId || !description || !amount || !date || !Array.isArray(participantIds)) {
+  if (!expenseIdParam || !description || !amount || !date || !Array.isArray(participantIds)) {
     throw createError({
       statusCode: 400,
-      message: 'Expense ID, description, amount, date, and participantIds are required'
+      message: 'Expense ID, description, amount, date, and participantIds are required',
     })
   }
 
   try {
-    // Update expense
-    const { error: updateError } = await supabase
-      .from('expenses')
-      .update({
-        description,
-        amount: parseFloat(amount),
-        date,
-        expense_type: expenseType || 'other',
-        paid_by: paidBy ? parseInt(paidBy) : null,
-        updated_at: new Date().toISOString(),
+    const expenseId = Number.parseInt(expenseIdParam)
+    const expensesCol = await col('expenses')
+    const participantsCol = await col('expense_participants')
+    const personsCol = await col('persons')
+    const now = new Date().toISOString()
+
+    await expensesCol.updateOne(
+      { id: expenseId },
+      {
+        $set: {
+          description,
+          amount: Number.parseFloat(amount),
+          date,
+          expense_type: expenseType || 'other',
+          paid_by: paidBy ? Number.parseInt(paidBy) : null,
+          updated_at: now,
+        },
+      },
+    )
+
+    await participantsCol.deleteMany({ expense_id: expenseId })
+
+    const participants = []
+    for (const personId of participantIds) {
+      const pid = typeof personId === 'number' ? personId : Number.parseInt(String(personId))
+      const epId = await nextId('expense_participants')
+      participants.push({
+        id: epId,
+        expense_id: expenseId,
+        person_id: pid,
+        created_at: now,
       })
-      .eq('id', parseInt(expenseId))
+    }
 
-    if (updateError) throw updateError
+    if (participants.length > 0) {
+      await participantsCol.insertMany(participants as any[])
+    }
 
-    // Delete old participants
-    await supabase
-      .from('expense_participants')
-      .delete()
-      .eq('expense_id', parseInt(expenseId))
+    const expense = await expensesCol.findOne({ id: expenseId })
+    if (!expense) {
+      throw createError({ statusCode: 404, message: 'Expense not found' })
+    }
 
-    // Add new participants
-    const participants = participantIds.map((personId: unknown) => ({
-      expense_id: parseInt(expenseId),
-      person_id: typeof personId === 'string' ? parseInt(personId) : (typeof personId === 'number' ? personId : parseInt(String(personId))),
-    }))
+    const persons = await personsCol.find({}).toArray()
+    const nameMap = personNameMap(persons as any)
 
-    const { error: participantsError } = await supabase
-      .from('expense_participants')
-      .insert(participants)
-
-    if (participantsError) throw participantsError
-
-    // Get the updated expense with participants
-    const { data: expense, error: fetchError } = await supabase
-      .from('expenses')
-      .select(`
-        *,
-        expense_participants(person_id, persons(name)),
-        persons!expenses_paid_by_fkey(name)
-      `)
-      .eq('id', parseInt(expenseId))
-      .single()
-
-    if (fetchError) throw fetchError
-
-    const participantsData = expense.expense_participants || []
     return {
-      ...expense,
-      participant_ids: participantsData.map((ep: any) => ep.person_id),
-      participant_names: participantsData.map((ep: any) => ep.persons?.name || '').filter(Boolean),
-      paid_by_name: expense.persons?.name || null,
+      ...stripId(expense),
+      participant_ids: participants.map(ep => ep.person_id),
+      participant_names: participants
+        .map(ep => nameMap.get(ep.person_id) || '')
+        .filter(Boolean),
+      paid_by_name: expense.paid_by ? nameMap.get(expense.paid_by) || null : null,
     }
   } catch (error: any) {
+    if (error.statusCode) throw error
     throw createError({
       statusCode: 500,
-      message: 'Failed to update expense'
+      message: 'Failed to update expense',
     })
   }
 })

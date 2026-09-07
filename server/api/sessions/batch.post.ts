@@ -1,4 +1,4 @@
-import { supabase } from '../../utils/db'
+import { col, nextId } from '../../utils/db'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -7,27 +7,32 @@ export default defineEventHandler(async (event) => {
   if (!personId || !Array.isArray(sessions)) {
     throw createError({
       statusCode: 400,
-      message: 'Person ID and sessions array are required'
+      message: 'Person ID and sessions array are required',
     })
   }
 
   try {
-    // Note: class_sessions table doesn't have person_id in the schema
-    // This endpoint might need to be adjusted based on your actual schema
-    // For now, inserting sessions without person_id
-    const sessionsToInsert = sessions.map((session: { date: string; hasClass: boolean }) => ({
-      date: session.date,
-      has_class: session.hasClass ? 1 : 0,
-      updated_at: new Date().toISOString(),
-    }))
+    const classSessions = await col('class_sessions')
+    const now = new Date().toISOString()
 
-    const { error } = await supabase
-      .from('class_sessions')
-      .upsert(sessionsToInsert, {
-        onConflict: 'date',
-      })
-
-    if (error) throw error
+    for (const session of sessions as Array<{ date: string; hasClass: boolean }>) {
+      const existing = await classSessions.findOne({ date: session.date })
+      if (existing) {
+        await classSessions.updateOne(
+          { date: session.date },
+          { $set: { has_class: session.hasClass ? 1 : 0, updated_at: now } },
+        )
+      } else {
+        const id = await nextId('class_sessions')
+        await classSessions.insertOne({
+          id,
+          date: session.date,
+          has_class: session.hasClass ? 1 : 0,
+          created_at: now,
+          updated_at: now,
+        } as any)
+      }
+    }
 
     return { success: true, count: sessions.length }
   } catch {

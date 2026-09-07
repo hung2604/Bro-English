@@ -1,42 +1,40 @@
-import { supabase } from '../../utils/db'
+import { col } from '../../utils/db'
+import { monthRegex, stripId, personNameMap } from '../../utils/mongo-helpers'
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
   const { date, year, month } = query
 
   try {
-    let queryBuilder = supabase
-      .from('session_history')
-      .select(`
-        *,
-        persons!session_history_user_id_fkey(name)
-      `)
-      .order('created_at', { ascending: false })
+    const historyCol = await col('session_history')
+    const personsCol = await col('persons')
+
+    let filter: Record<string, any> = {}
+    let limit = 0
 
     if (date) {
-      queryBuilder = queryBuilder.eq('date', date as string)
+      filter = { date: date as string }
     } else if (year && month) {
-      const monthPrefix = `${year}-${String(month).padStart(2, '0')}-`
-      queryBuilder = queryBuilder.like('date', `${monthPrefix}%`)
+      filter = { date: monthRegex(year as string, month as string) }
     } else {
-      queryBuilder = queryBuilder.limit(100)
+      limit = 100
     }
 
-    const { data, error } = await queryBuilder
+    let cursor = historyCol.find(filter).sort({ created_at: -1 })
+    if (limit > 0) cursor = cursor.limit(limit)
 
-    if (error) throw error
+    const data = await cursor.toArray()
+    const persons = await personsCol.find({}).toArray()
+    const nameMap = personNameMap(persons as any)
 
-    // Map the result to include user_name
-    const history = (data || []).map((item: any) => ({
+    return stripId(data).map((item: any) => ({
       ...item,
-      user_name: item.persons?.name || null,
+      user_name: nameMap.get(item.user_id) || null,
     }))
-
-    return history
-  } catch (error: any) {
+  } catch {
     throw createError({
       statusCode: 500,
-      message: 'Failed to fetch session history'
+      message: 'Failed to fetch session history',
     })
   }
 })

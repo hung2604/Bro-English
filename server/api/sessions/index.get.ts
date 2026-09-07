@@ -1,30 +1,22 @@
-import { supabase } from '../../utils/db'
+import { col } from '../../utils/db'
+import { monthRegex, stripId } from '../../utils/mongo-helpers'
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
   const { year, month } = query
-  
+
   if (!year || !month) {
     throw createError({
       statusCode: 400,
-      message: 'Year and month are required'
+      message: 'Year and month are required',
     })
   }
 
-  const monthPrefix = `${year}-${String(month).padStart(2, '0')}-`
-  
-  const { data, error } = await supabase
-    .from('class_sessions')
-    .select('*')
-    .like('date', `${monthPrefix}%`)
-    .order('date')
+  const sessions = await col('class_sessions')
+  const data = await sessions
+    .find({ date: monthRegex(year as string, month as string) })
+    .sort({ date: 1 })
+    .toArray()
 
-  if (error) {
-    throw createError({
-      statusCode: 500,
-      message: 'Failed to fetch sessions'
-    })
-  }
-
-  return data || []
+  return stripId(data)
 })

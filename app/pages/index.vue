@@ -166,7 +166,10 @@ const loadStudyData = async () => {
       newWords: stats.newWords,
       dueToday: stats.dueToday,
     }
-    studySettings.value = settings
+    studySettings.value = {
+      new_words_per_day: settings.new_words_per_day,
+      max_reviews_per_day: settings.max_reviews_per_day,
+    }
   } catch (error) {
     console.error('Failed to load study data:', error)
   }
