@@ -11,6 +11,7 @@
     "migrate:mongo": "node scripts/migrate-supabase-to-mongo.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
     "@google/generative-ai": "^0.24.1",
     "@nuxt/eslint": "^1.11.0",
     "@nuxt/image": "^2.0.0",

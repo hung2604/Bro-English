@@ -82,6 +82,12 @@ async function ensureIndexes(db: Db) {
     db.collection('vocabulary_reviews').createIndex({ person_id: 1 }),
     db.collection('user_study_settings').createIndex({ id: 1 }, { unique: true }),
     db.collection('user_study_settings').createIndex({ person_id: 1 }, { unique: true }),
+    db.collection('agent_settings').createIndex({ key: 1 }, { unique: true }),
+    db.collection('agent_threads').createIndex({ thread_id: 1 }, { unique: true }),
+    db.collection('agent_messages').createIndex({ id: 1 }, { unique: true }),
+    db.collection('agent_messages').createIndex({ external_id: 1 }, { unique: true }),
+    db.collection('agent_messages').createIndex({ thread_id: 1, id: 1 }),
+    db.collection('agent_runs').createIndex({ id: 1 }, { unique: true }),
   ])
 }
 

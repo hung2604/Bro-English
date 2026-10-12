@@ -60,6 +60,13 @@
             >
               💰 Expenses
             </UButton>
+            <UButton
+              to="/agent"
+              variant="ghost"
+              color="neutral"
+            >
+              🤖 Agent
+            </UButton>
           </nav>
         </div>
       </div>

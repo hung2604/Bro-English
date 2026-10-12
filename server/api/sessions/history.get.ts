@@ -29,7 +29,7 @@ export default defineEventHandler(async (event) => {
 
     return stripId(data).map((item: any) => ({
       ...item,
-      user_name: nameMap.get(item.user_id) || null,
+      user_name: item.source === 'agent' ? 'Zalo agent' : nameMap.get(item.user_id) || null,
     }))
   } catch {
     throw createError({

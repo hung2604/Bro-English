@@ -7,4 +7,10 @@ export default defineNuxtConfig({
   typescript: {
     typeCheck: true,
   },
+  nitro: {
+    vercel: {
+      // The chat agent reads a message (and its photos) with an AI model after the webhook returns.
+      functions: { maxDuration: 60 },
+    },
+  },
 })

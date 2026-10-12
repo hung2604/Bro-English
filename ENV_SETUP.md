@@ -18,6 +18,38 @@ GEMINI_API_KEY=your-gemini-api-key-here
 
 > **Lưu ý:** Gemini API key chỉ cần thiết nếu bạn muốn sử dụng tính năng tự động điền từ loại và nghĩa bằng AI. Nếu không có key này, tính năng AI sẽ không hoạt động nhưng các tính năng khác vẫn bình thường.
 
+### 3. Zalo Agent (TÙY CHỌN - Cho trang `/agent`)
+
+```env
+# Mật khẩu mở trang /agent (nơi nhập API key, chọn nhóm Zalo). Bắt buộc nếu dùng agent.
+AGENT_ADMIN_PASSWORD=mot-mat-khau-dai
+# Khóa mã hoá API key lưu trong Mongo. Bỏ trống thì dùng AGENT_ADMIN_PASSWORD.
+# Đổi khóa này (hoặc đổi mật khẩu khi không đặt khóa) thì phải nhập lại API key trên trang /agent.
+SETTINGS_SECRET=
+```
+
+Agent đọc tin nhắn nhóm Zalo do smax.ai gửi về webhook `/api/webhooks/zalo?token=…` (URL đầy đủ hiện ở trang `/agent`), rồi:
+
+- Tự đánh dấu buổi học / nghỉ học khi nhóm báo nghỉ, dời lịch hoặc học bù.
+- Tự thêm khoản chi khi có ảnh hóa đơn / bill chuyển khoản. Người gửi ảnh là người trả tiền.
+
+Nhà cung cấp AI, model và API key nhập trên trang `/agent` (key được mã hoá trước khi lưu). Các biến dưới đây chỉ là giá trị dự phòng khi chưa nhập trên giao diện:
+
+```env
+ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
+GEMINI_API_KEY=
+DEEPSEEK_API_KEY=
+# Token trên URL webhook, nếu không muốn dùng token tự sinh trên trang /agent
+ZALO_WEBHOOK_TOKEN=
+# Cho phép tải ảnh từ host khác ngoài CDN của Zalo (zdn.vn, zadn.vn), cách nhau bằng dấu phẩy
+AGENT_IMAGE_HOSTS=
+# Dùng proxy tương thích OpenAI thay cho api.openai.com
+OPENAI_BASE_URL=
+```
+
+> **Lưu ý:** webhook smax.ai không cho biết ai trong nhóm vừa nhắn, chỉ phân biệt tin của chính bạn (`chat_by`) với người khác. Với ảnh do người khác gửi, agent lấy tên người trả từ bill chuyển khoản hoặc nội dung chat; không xác định được thì để trống người trả và ghi chú lại ở mục Activity. Nếu body webhook có thêm trường `sender` (tên người gửi) thì agent dùng trường đó.
+
 ## Setup cho Local Development
 
 ### Tạo file `.env` trong root directory:
