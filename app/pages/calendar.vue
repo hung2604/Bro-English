@@ -678,7 +678,7 @@ const loadExpenseDailyTotals = async () => {
 const loadPersonsForExpenses = async () => {
   try {
     allPersons.value = await $fetch<Person[]>('/api/persons')
-    const defaultNames = ['Seb', 'Ania', 'Simon', 'Hairy', 'James', 'David']
+    const defaultNames = ['Seb', 'Ania', 'Simon', 'James', 'David']
     const defaultPersons = allPersons.value.filter(p => defaultNames.includes(p.name))
     newExpense.value.participantIds = defaultPersons.map(p => p.id)
   } catch (error) {
@@ -693,7 +693,7 @@ const resetExpenseForm = () => {
     date: new Date().toISOString().split('T')[0],
     expenseType: 'other',
     participantIds: allPersons.value
-      .filter(p => ['Seb', 'Ania', 'Simon', 'Hairy', 'James', 'David'].includes(p.name))
+      .filter(p => ['Seb', 'Ania', 'Simon', 'James', 'David'].includes(p.name))
       .map(p => p.id),
     paidBy: null
   }

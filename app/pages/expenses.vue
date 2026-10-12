@@ -499,8 +499,8 @@ const personOptions = computed(() => {
 const loadPersons = async () => {
   try {
     allPersons.value = await $fetch<Person[]>('/api/persons')
-    // Set default participants: Seb + 5 default members
-    const defaultNames = ['Seb', 'Ania', 'Simon', 'Hairy', 'James', 'David']
+    // Set default participants: Seb + 4 default members (Hairy only joins occasionally, add him manually)
+    const defaultNames = ['Seb', 'Ania', 'Simon', 'James', 'David']
     const defaultPersons = allPersons.value.filter(p => defaultNames.includes(p.name))
     newExpense.value.participantIds = defaultPersons.map(p => p.id)
   } catch (error) {
@@ -610,7 +610,7 @@ const resetForm = () => {
     date: new Date().toISOString().split('T')[0],
     expenseType: 'other',
     participantIds: allPersons.value
-      .filter(p => ['Seb', 'Ania', 'Simon', 'Hairy', 'James', 'David'].includes(p.name))
+      .filter(p => ['Seb', 'Ania', 'Simon', 'James', 'David'].includes(p.name))
       .map(p => p.id),
     paidBy: null
   }

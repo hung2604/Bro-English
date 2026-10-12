@@ -33,7 +33,11 @@ export default defineEventHandler(async (event) => {
       participantsByExpense.set(ep.expense_id, list)
     }
 
+    // Members who left the class stop sharing tuition from this month (YYYY-MM) onward
+    const tuitionEndMonth: Record<string, string> = { Hairy: '2026-10' }
+    const monthKey = `${year}-${String(month).padStart(2, '0')}`
     const defaultPersons = ['Ania', 'Simon', 'Hairy', 'James', 'David']
+      .filter(name => !tuitionEndMonth[name] || monthKey < tuitionEndMonth[name])
     const teachers = ['Seb', 'Charlotte']
 
     const defaultPersonsData = await personsCol.find({ name: { $in: defaultPersons } }).toArray()
@@ -178,7 +182,7 @@ export default defineEventHandler(async (event) => {
       .reduce((sum, item) => sum + item.total_amount, 0))
 
     return {
-      month: `${year}-${String(month).padStart(2, '0')}`,
+      month: monthKey,
       total_classes: totalClasses,
       total_tuition: totalTuition,
       total_amount: totalAmountToCollect,
