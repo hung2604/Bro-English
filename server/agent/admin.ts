@@ -8,17 +8,14 @@ const FIRST_LOCK_MS = 15 * 60_000
 const MAX_LOCK_MS = 24 * 60 * 60_000
 const SESSION_MS = 30 * 24 * 60 * 60_000
 
+/** The PIN of the Agent page. `AGENT_ADMIN_PIN` (6 digits) replaces it when set. */
+const DEFAULT_PIN = '124512'
+
 type PinState = { fails?: number, locked_until?: number, lock_ms?: number }
 
 function configuredPin(): string {
   const pin = process.env.AGENT_ADMIN_PIN?.trim() ?? ''
-  if (!/^\d{6}$/.test(pin)) {
-    throw createError({
-      statusCode: 503,
-      message: 'Set AGENT_ADMIN_PIN (6 digits) in the environment to use the agent settings',
-    })
-  }
-  return pin
+  return /^\d{6}$/.test(pin) ? pin : DEFAULT_PIN
 }
 
 /** Sessions are signed with a key that includes the PIN, so changing the PIN signs everyone out. */

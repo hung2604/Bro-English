@@ -21,9 +21,10 @@ GEMINI_API_KEY=your-gemini-api-key-here
 ### 3. Zalo Agent (TÙY CHỌN - Cho trang `/agent`)
 
 ```env
-# Mã PIN 6 số mở trang /agent (nơi nhập API key, chọn nhóm Zalo). Bắt buộc nếu dùng agent.
+# Trang /agent (nơi nhập API key, chọn nhóm Zalo) mở bằng mã PIN 6 số đặt sẵn trong
+# server/agent/admin.ts, không cần cài biến nào. Muốn dùng PIN khác thì đặt biến này (6 số).
 # Sai 5 lần thì khoá đăng nhập 15 phút, mỗi lần khoá sau gấp đôi, tối đa 24 giờ.
-AGENT_ADMIN_PIN=123456
+AGENT_ADMIN_PIN=
 # Khóa mã hoá API key lưu trong Mongo. Bỏ trống thì dùng MONGODB_URI.
 # Đổi khóa này (hoặc đổi MONGODB_URI khi không đặt khóa) thì phải nhập lại API key trên trang /agent.
 SETTINGS_SECRET=

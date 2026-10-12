@@ -19,26 +19,29 @@
           Admin PIN
         </h2>
         <p class="text-sm text-gray-600">
-          This page holds API keys, so it needs the 6-digit PIN set in <code>AGENT_ADMIN_PIN</code>.
+          This page holds API keys, so it needs the 6-digit admin PIN.
         </p>
         <form
-          class="flex gap-2"
+          class="flex flex-wrap items-center gap-3"
           @submit.prevent="signIn"
         >
-          <UInput
-            v-model="pin"
-            type="password"
-            inputmode="numeric"
-            maxlength="6"
-            autocomplete="off"
-            placeholder="6 digits"
-            class="w-40 font-mono"
+          <UPinInput
+            v-model="pinDigits"
+            :length="PIN_LENGTH"
+            type="number"
+            size="xl"
+            otp
+            mask
+            autofocus
+            :disabled="loading"
+            aria-label="Admin PIN"
+            @complete="signIn"
           />
           <UButton
             type="submit"
             color="primary"
             :loading="loading"
-            :disabled="!/^\d{6}$/.test(pin)"
+            :disabled="pin.length !== PIN_LENGTH"
           >
             Unlock
           </UButton>
@@ -66,7 +69,7 @@
                 </UBadge>
               </div>
               <p class="text-sm text-gray-600">
-                When on, every new message in the chosen group is read as it arrives.
+                When on, every new message in the two groups is read as it arrives.
               </p>
             </div>
             <USwitch
@@ -690,7 +693,10 @@ const statusLabels = {
   error: 'Failed',
 }
 
-const pin = ref('')
+const PIN_LENGTH = 6
+/** One entry per box of the PIN input. */
+const pinDigits = ref<number[]>([])
+const pin = computed(() => pinDigits.value.join(''))
 /** The session token the PIN was exchanged for. */
 const session = ref('')
 const loading = ref(false)
@@ -799,17 +805,19 @@ function fill(view: AgentSettings) {
 }
 
 async function signIn() {
+  if (loading.value || pin.value.length !== PIN_LENGTH) return
   loading.value = true
   loadError.value = ''
   try {
     const result = await $fetch<{ token: string }>('/api/agent/login', { method: 'POST', body: { pin: pin.value } })
     session.value = result.token
     localStorage.setItem(STORAGE_KEY, result.token)
-    pin.value = ''
+    pinDigits.value = []
     await load()
   }
   catch (error) {
     loadError.value = errorText(error)
+    pinDigits.value = []
   }
   finally {
     loading.value = false
