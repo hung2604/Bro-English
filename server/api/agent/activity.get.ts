@@ -1,7 +1,7 @@
 import { requireAgentAdmin } from '../../agent/admin'
 import { senderLabel, type StoredMessage } from '../../agent/prompt'
 import type { AgentRun } from '../../agent/runner'
-import { resolvedSettings } from '../../agent/settings'
+import { groupRoleOf, resolvedSettings } from '../../agent/settings'
 import { col } from '../../utils/db'
 import { stripId } from '../../utils/mongo-helpers'
 
@@ -18,6 +18,7 @@ export default defineEventHandler(async (event) => {
   return {
     messages: messages.map(message => ({
       id: message.id,
+      group: groupRoleOf(settings, message.thread_id),
       sender: senderLabel(message, settings, people),
       text: message.text,
       imageUrls: message.image_urls,

@@ -1,6 +1,6 @@
 import { runInBackground } from '../../agent/background'
 import { processPending } from '../../agent/runner'
-import { loadSettings, matchesWebhookToken, resolve } from '../../agent/settings'
+import { groupRoleOf, loadSettings, matchesWebhookToken, resolve } from '../../agent/settings'
 import { mapZaloPayload } from '../../agent/zalo-payload'
 import { col, nextId } from '../../utils/db'
 import { isDuplicateKey } from '../../utils/mongo-helpers'
@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
   const message = mapZaloPayload(payload, settings.selfChatBy)
   const now = new Date().toISOString()
 
-  // Every thread is remembered by name only, so the group can be picked on the Agent page.
+  // Every thread is remembered by name only, so the groups can be picked on the Agent page.
   await (await col('agent_threads')).updateOne(
     { thread_id: message.threadId },
     {
@@ -28,8 +28,8 @@ export default defineEventHandler(async (event) => {
     { upsert: true },
   )
 
-  // Message content is kept for the chosen group only; other chats of the account are dropped.
-  if (!settings.threadId || message.threadId !== settings.threadId) return { ok: true, stored: false }
+  // Message content is kept for the two class groups only; other chats of the account are dropped.
+  if (!groupRoleOf(settings, message.threadId)) return { ok: true, stored: false }
   if (!message.text && !message.imageUrls.length) return { ok: true, stored: false }
 
   try {

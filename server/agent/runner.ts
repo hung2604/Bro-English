@@ -6,7 +6,7 @@ import { fetchImage } from './images'
 import { buildSystemPrompt, buildUserMessage, type StoredMessage } from './prompt'
 import { getProviders } from './providers/registry'
 import type { ChatMessage, ImageInput } from './providers/types'
-import { errorMessage, resolvedSettings, type ResolvedSettings } from './settings'
+import { errorMessage, groupIds, resolvedSettings, type ResolvedSettings } from './settings'
 import { addDays, vnDate, vnDayStartIso } from './time'
 import { expensesBetween, runTool, scheduleBetween, TOOL_SPECS, type AgentAction, type Person, type ToolContext } from './tools'
 
@@ -65,28 +65,28 @@ async function releaseLock(owner: string): Promise<void> {
   await (await col('agent_state')).updateOne({ _id: 'lock' as any, owner }, { $set: { locked_until: 0 } })
 }
 
-async function pendingMessages(threadId: string): Promise<StoredMessage[]> {
+async function pendingMessages(threadIds: string[]): Promise<StoredMessage[]> {
   return (await messagesCol())
-    .find({ thread_id: threadId, status: 'pending' })
+    .find({ thread_id: { $in: threadIds }, status: 'pending' })
     .sort({ id: 1 })
     .limit(MAX_BATCH)
     .toArray()
 }
 
 /**
- * Reads every pending message of the chosen thread. Safe to call from each webhook:
+ * Reads every pending message of the class groups. Safe to call from each webhook:
  * if another call is already working, this one returns and that one picks the message up.
  */
 export async function processPending(options: { debounce?: boolean } = {}): Promise<void> {
   const owner = randomUUID()
   for (let round = 0; round < MAX_ROUNDS; round += 1) {
     if (!(await acquireLock(owner))) return
-    let threadId = ''
+    let threadIds: string[] = []
     try {
-      threadId = (await resolvedSettings()).threadId
-      if (threadId) {
+      threadIds = groupIds(await resolvedSettings())
+      if (threadIds.length) {
         if (options.debounce !== false) await sleep(DEBOUNCE_MS)
-        const pending = await pendingMessages(threadId)
+        const pending = await pendingMessages(threadIds)
         // Settings are read again after the wait so a change made meanwhile applies.
         if (pending.length) await runOnce(await resolvedSettings(), pending)
       }
@@ -98,7 +98,7 @@ export async function processPending(options: { debounce?: boolean } = {}): Prom
       await releaseLock(owner)
     }
     // A message may have arrived while the lock was held; its own call gave up on the lock.
-    if (!threadId || !(await pendingMessages(threadId)).length) return
+    if (!threadIds.length || !(await pendingMessages(threadIds)).length) return
   }
 }
 
@@ -149,7 +149,7 @@ async function runOnce(settings: ResolvedSettings, fresh: StoredMessage[]): Prom
     const firstId = fresh[0]!.id
     const earlier = (await (await messagesCol())
       .find({
-        thread_id: settings.threadId,
+        thread_id: { $in: groupIds(settings) },
         id: { $lt: firstId },
         created_at: { $gte: new Date(Date.now() - EARLIER_DAYS * 86_400_000).toISOString() },
       })

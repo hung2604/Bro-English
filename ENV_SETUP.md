@@ -21,12 +21,15 @@ GEMINI_API_KEY=your-gemini-api-key-here
 ### 3. Zalo Agent (TÙY CHỌN - Cho trang `/agent`)
 
 ```env
-# Mật khẩu mở trang /agent (nơi nhập API key, chọn nhóm Zalo). Bắt buộc nếu dùng agent.
-AGENT_ADMIN_PASSWORD=mot-mat-khau-dai
-# Khóa mã hoá API key lưu trong Mongo. Bỏ trống thì dùng AGENT_ADMIN_PASSWORD.
-# Đổi khóa này (hoặc đổi mật khẩu khi không đặt khóa) thì phải nhập lại API key trên trang /agent.
+# Mã PIN 6 số mở trang /agent (nơi nhập API key, chọn nhóm Zalo). Bắt buộc nếu dùng agent.
+# Sai 5 lần thì khoá đăng nhập 15 phút, mỗi lần khoá sau gấp đôi, tối đa 24 giờ.
+AGENT_ADMIN_PIN=123456
+# Khóa mã hoá API key lưu trong Mongo. Bỏ trống thì dùng MONGODB_URI.
+# Đổi khóa này (hoặc đổi MONGODB_URI khi không đặt khóa) thì phải nhập lại API key trên trang /agent.
 SETTINGS_SECRET=
 ```
+
+Agent chỉ nghe đúng 2 nhóm Zalo, chọn trên trang `/agent`: nhóm **internal** (chỉ học viên) và nhóm **external** (có thầy giáo). Tin từ các chat khác không được lưu.
 
 Agent đọc tin nhắn nhóm Zalo do smax.ai gửi về webhook `/api/webhooks/zalo?token=…` (URL đầy đủ hiện ở trang `/agent`), rồi:
 

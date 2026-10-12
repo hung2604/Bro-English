@@ -16,27 +16,29 @@
         class="bg-white rounded-lg shadow-md p-6 space-y-3"
       >
         <h2 class="font-semibold text-gray-800">
-          Admin password
+          Admin PIN
         </h2>
         <p class="text-sm text-gray-600">
-          This page holds API keys, so it needs the password set in <code>AGENT_ADMIN_PASSWORD</code>.
+          This page holds API keys, so it needs the 6-digit PIN set in <code>AGENT_ADMIN_PIN</code>.
         </p>
         <form
           class="flex gap-2"
-          @submit.prevent="unlock"
+          @submit.prevent="signIn"
         >
           <UInput
-            v-model="password"
+            v-model="pin"
             type="password"
-            autocomplete="current-password"
-            placeholder="Password"
-            class="flex-1"
+            inputmode="numeric"
+            maxlength="6"
+            autocomplete="off"
+            placeholder="6 digits"
+            class="w-40 font-mono"
           />
           <UButton
             type="submit"
             color="primary"
             :loading="loading"
-            :disabled="!password"
+            :disabled="!/^\d{6}$/.test(pin)"
           >
             Unlock
           </UButton>
@@ -91,7 +93,7 @@
         <!-- Zalo -->
         <div class="bg-white rounded-lg shadow-md p-6 space-y-4">
           <h2 class="font-semibold text-gray-800">
-            Zalo group (smax.ai)
+            Zalo groups (smax.ai)
           </h2>
           <UFormField
             label="Webhook URL"
@@ -112,18 +114,52 @@
               </UButton>
             </div>
           </UFormField>
-          <UFormField
-            label="Group to read"
-            help="Chats show up here after their first message reaches the webhook. Only the chosen group's messages are stored."
+          <p class="text-sm text-gray-600">
+            The agent listens to two chats only. Messages from any other chat are not stored. A chat shows up in the lists below after its first message reaches the webhook; you can also type its id.
+          </p>
+          <div
+            v-for="group in groupFields"
+            :key="group.role"
+            class="rounded-lg border border-gray-200 p-4 space-y-3"
           >
-            <USelect
-              v-model="form.threadId"
-              :items="threadOptions"
-              value-key="value"
-              placeholder="No chat received yet"
-              class="w-full"
-            />
-          </UFormField>
+            <div>
+              <div class="font-medium text-gray-900">
+                {{ group.label }}
+              </div>
+              <p class="text-sm text-gray-600">
+                {{ group.help }}
+              </p>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <UFormField label="Pick a received chat">
+                <USelect
+                  :model-value="threadOptions.some(option => option.value === form.groups[group.role].id) ? form.groups[group.role].id : undefined"
+                  :items="threadOptions"
+                  value-key="value"
+                  placeholder="No chat received yet"
+                  class="w-full"
+                  @update:model-value="pickThread(group.role, $event)"
+                />
+              </UFormField>
+              <UFormField label="Chat id">
+                <div class="flex gap-2">
+                  <UInput
+                    v-model="form.groups[group.role].id"
+                    placeholder="thread id from smax.ai"
+                    class="min-w-0 flex-1 font-mono"
+                  />
+                  <UButton
+                    v-if="form.groups[group.role].id"
+                    color="neutral"
+                    variant="ghost"
+                    icon="i-heroicons-x-mark"
+                    aria-label="Clear"
+                    @click="form.groups[group.role].id = ''"
+                  />
+                </div>
+              </UFormField>
+            </div>
+          </div>
           <div class="grid gap-4 sm:grid-cols-2">
             <UFormField
               label="Your chat_by value"
@@ -455,6 +491,15 @@
                 class="text-sm"
               >
                 <span class="mr-2 text-gray-400">#{{ message.id }} {{ formatTime(message.at) }}</span>
+                <UBadge
+                  v-if="message.group"
+                  :color="message.group === 'external' ? 'info' : 'neutral'"
+                  variant="subtle"
+                  size="sm"
+                  class="mr-2"
+                >
+                  {{ message.group }}
+                </UBadge>
                 <span class="mr-1 font-medium text-gray-900">{{ message.sender }}:</span>
                 <span class="text-gray-700">{{ message.text }}</span>
                 <a
@@ -544,6 +589,7 @@
 <script setup lang="ts">
 type ProviderId = 'anthropic' | 'openai' | 'gemini' | 'deepseek'
 type Effort = 'low' | 'medium' | 'high'
+type GroupRole = 'internal' | 'external'
 
 interface ProviderView {
   id: ProviderId
@@ -564,8 +610,7 @@ interface AgentSettings {
   dryRun: boolean
   provider: ProviderId
   effort: Effort
-  threadId: string
-  threadName: string
+  groups: Record<GroupRole, { id: string, name: string }>
   selfChatBy: string
   selfPerson: string
   aliases: Array<{ alias: string, person: string }>
@@ -585,6 +630,7 @@ interface Thread {
 
 interface ActivityMessage {
   id: number
+  group: GroupRole | null
   sender: string
   text: string
   imageUrls: string[]
@@ -621,11 +667,15 @@ interface Draft {
   model: string
 }
 
-const STORAGE_KEY = 'agentAdminPassword'
+const STORAGE_KEY = 'agentAdminSession'
 const efforts: Array<{ value: Effort, label: string }> = [
   { value: 'low', label: 'Fast' },
   { value: 'medium', label: 'Balanced' },
   { value: 'high', label: 'Thorough' },
+]
+const groupFields: Array<{ role: GroupRole, label: string, help: string }> = [
+  { role: 'internal', label: 'Internal group', help: 'The students\' own group, without the teacher.' },
+  { role: 'external', label: 'External group', help: 'The group the teacher is in.' },
 ]
 const actionLabels = {
   session: 'Class day',
@@ -640,7 +690,9 @@ const statusLabels = {
   error: 'Failed',
 }
 
-const password = ref('')
+const pin = ref('')
+/** The session token the PIN was exchanged for. */
+const session = ref('')
 const loading = ref(false)
 const loadError = ref('')
 const settings = ref<AgentSettings | null>(null)
@@ -652,7 +704,7 @@ const form = reactive({
   dryRun: false,
   provider: 'anthropic' as ProviderId,
   effort: 'medium' as Effort,
-  threadId: '',
+  groups: { internal: { id: '' }, external: { id: '' } } as Record<GroupRole, { id: string }>,
   selfChatBy: '',
   selfPerson: '',
   aliases: [] as Array<{ alias: string, person: string }>,
@@ -690,7 +742,7 @@ const statusLabel = computed(() => {
   if (!value) return ''
   if (value.active) return value.dryRun ? 'Running (dry run)' : 'Running'
   if (!value.enabled) return 'Off'
-  return value.threadId ? 'Missing API key' : 'No group chosen'
+  return value.groups.internal.id || value.groups.external.id ? 'Missing API key' : 'No group chosen'
 })
 
 const webhookUrl = computed(() => {
@@ -699,15 +751,10 @@ const webhookUrl = computed(() => {
 })
 
 const threadOptions = computed(() => {
-  const options = threads.value.map(thread => ({
+  return threads.value.map(thread => ({
     label: `${thread.name}${thread.isGroup ? ' (group)' : ''} · ${thread.count} msg`,
     value: thread.id,
   }))
-  // The saved group stays selectable even if it is not in the recent list.
-  if (form.threadId && !options.some(option => option.value === form.threadId)) {
-    options.unshift({ label: settings.value?.threadName || form.threadId, value: form.threadId })
-  }
-  return options
 })
 
 const waitingCount = computed(() =>
@@ -728,7 +775,7 @@ const timeline = computed(() => {
 })
 
 function api<T>(url: string, options: { method?: 'GET' | 'POST' | 'PUT', body?: Record<string, unknown> } = {}) {
-  return $fetch<T>(url, { ...options, headers: { 'x-agent-admin': password.value } })
+  return $fetch<T>(url, { ...options, headers: { 'x-agent-admin': session.value } })
 }
 
 function errorText(error: unknown): string {
@@ -742,7 +789,7 @@ function fill(view: AgentSettings) {
   form.dryRun = view.dryRun
   form.provider = view.provider
   form.effort = view.effort
-  form.threadId = view.threadId
+  form.groups = { internal: { id: view.groups.internal.id }, external: { id: view.groups.external.id } }
   form.selfChatBy = view.selfChatBy
   form.selfPerson = view.selfPerson
   form.aliases = view.aliases.map(item => ({ ...item }))
@@ -751,21 +798,39 @@ function fill(view: AgentSettings) {
   for (const item of view.providers) drafts[item.id] = { apiKey: '', clearKey: false, model: item.model }
 }
 
-async function unlock() {
+async function signIn() {
   loading.value = true
   loadError.value = ''
+  try {
+    const result = await $fetch<{ token: string }>('/api/agent/login', { method: 'POST', body: { pin: pin.value } })
+    session.value = result.token
+    localStorage.setItem(STORAGE_KEY, result.token)
+    pin.value = ''
+    await load()
+  }
+  catch (error) {
+    loadError.value = errorText(error)
+  }
+  finally {
+    loading.value = false
+  }
+}
+
+async function load() {
+  loading.value = true
   try {
     const data = await api<{ settings: AgentSettings, threads: Thread[], persons: string[] }>('/api/agent/settings')
     threads.value = data.threads
     persons.value = data.persons
     fill(data.settings)
     editing.value = data.settings.provider
-    localStorage.setItem(STORAGE_KEY, password.value)
     await loadActivity()
   }
   catch (error) {
-    loadError.value = errorText(error)
+    // The saved session has expired or the PIN was changed: ask for the PIN again.
+    session.value = ''
     localStorage.removeItem(STORAGE_KEY)
+    if ((error as { statusCode?: number })?.statusCode !== 401) loadError.value = errorText(error)
   }
   finally {
     loading.value = false
@@ -783,14 +848,18 @@ function buildPatch() {
     if (item.model.trim() !== view.model) changes.model = item.model.trim() || null
     if (Object.keys(changes).length) providers[view.id] = changes
   }
-  const thread = threads.value.find(item => item.id === form.threadId)
+  // The chat's name is saved with its id when the chat is known, so the log can show it.
+  const groups = Object.fromEntries(groupFields.map(({ role }) => {
+    const id = form.groups[role].id.trim()
+    const name = threads.value.find(item => item.id === id)?.name ?? (id === settings.value?.groups[role].id ? settings.value.groups[role].name : '')
+    return [role, { id, name }]
+  }))
   return {
     enabled: form.enabled,
     dryRun: form.dryRun,
     provider: form.provider,
     effort: form.effort,
-    threadId: form.threadId,
-    ...(thread ? { threadName: thread.name } : {}),
+    groups,
     selfChatBy: form.selfChatBy,
     selfPerson: form.selfPerson,
     aliases: form.aliases.filter(item => item.alias.trim() && item.person),
@@ -856,6 +925,10 @@ async function loadModels() {
   }
 }
 
+function pickThread(role: GroupRole, id: unknown) {
+  if (typeof id === 'string') form.groups[role].id = id
+}
+
 function toggleParticipant(name: string) {
   const index = form.billParticipants.indexOf(name)
   if (index > -1) form.billParticipants.splice(index, 1)
@@ -914,8 +987,8 @@ watch(editing, () => {
 onMounted(() => {
   const saved = localStorage.getItem(STORAGE_KEY)
   if (saved) {
-    password.value = saved
-    unlock()
+    session.value = saved
+    load()
   }
 })
 </script>

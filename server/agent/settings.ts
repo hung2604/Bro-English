@@ -16,6 +16,11 @@ const MODEL_PATTERN = /^[\w.:/@-]{1,120}$/
 
 export type NameAlias = { alias: string, person: string }
 
+/** The class has two Zalo groups: students only, and the one the teacher is in. */
+export const GROUP_ROLES = ['internal', 'external'] as const
+export type GroupRole = (typeof GROUP_ROLES)[number]
+export type GroupSetting = { id: string, name: string }
+
 type ProviderSettings = {
   /** Sealed with `seal`, never returned to the client. */
   apiKey?: string
@@ -33,7 +38,9 @@ export type AgentSettingsDoc = {
   providers?: Partial<Record<ProviderId, ProviderSettings>>
   /** Sealed token expected on the webhook URL. */
   webhookToken?: string
-  /** Only messages from this Zalo thread are stored and read. */
+  /** Only messages from these Zalo threads are stored and read. */
+  groups?: Partial<Record<GroupRole, GroupSetting>>
+  /** The single group of the first version; read as the external group until `groups` is saved. */
   threadId?: string
   threadName?: string
   /** The `chat_by` value smax.ai puts on the account owner's own messages. */
@@ -58,15 +65,15 @@ const DEFAULT_DAILY_RUN_LIMIT = 100
 
 export type ResolvedSettings = {
   enabled: boolean
-  /** Enabled, a thread is chosen and the selected provider has a key. */
+  /** Enabled, at least one group is set and the selected provider has a key. */
   active: boolean
   dryRun: boolean
   provider: ProviderId
   model: string
   apiKey: string
   effort: Effort
-  threadId: string
-  threadName: string
+  /** An unset group has an empty id. */
+  groups: Record<GroupRole, GroupSetting>
   selfChatBy: string
   selfPerson: string
   aliases: NameAlias[]
@@ -98,8 +105,7 @@ export type SettingsInput = {
   dryRun?: unknown
   provider?: unknown
   effort?: unknown
-  threadId?: unknown
-  threadName?: unknown
+  groups?: Partial<Record<string, { id?: unknown, name?: unknown }>>
   selfChatBy?: unknown
   selfPerson?: unknown
   aliases?: unknown
@@ -139,23 +145,34 @@ export function resolve(doc: AgentSettingsDoc): ResolvedSettings {
   const provider = providerFor(doc)
   const { apiKey } = keyFor(doc, provider)
   const enabled = doc.enabled === true
-  const threadId = doc.threadId ?? ''
+  const groups: Record<GroupRole, GroupSetting> = {
+    internal: doc.groups?.internal ?? { id: '', name: '' },
+    external: doc.groups?.external ?? { id: doc.threadId ?? '', name: doc.threadName ?? '' },
+  }
   return {
     enabled,
-    active: enabled && Boolean(apiKey) && Boolean(threadId),
+    active: enabled && Boolean(apiKey) && GROUP_ROLES.some(role => groups[role].id),
     dryRun: doc.dryRun === true,
     provider,
     model: modelFor(doc, provider),
     apiKey,
     effort: doc.effort ?? 'medium',
-    threadId,
-    threadName: doc.threadName ?? '',
+    groups,
     selfChatBy: doc.selfChatBy ?? 'HUNGLT',
     selfPerson: doc.selfPerson ?? 'Simon',
     aliases: doc.aliases ?? DEFAULT_ALIASES,
     billParticipants: doc.billParticipants ?? DEFAULT_BILL_PARTICIPANTS,
     dailyRunLimit: doc.dailyRunLimit ?? DEFAULT_DAILY_RUN_LIMIT,
   }
+}
+
+/** Ids of the groups the agent listens to. */
+export function groupIds(settings: ResolvedSettings): string[] {
+  return GROUP_ROLES.map(role => settings.groups[role].id).filter(Boolean)
+}
+
+export function groupRoleOf(settings: ResolvedSettings, threadId: string): GroupRole | null {
+  return GROUP_ROLES.find(role => settings.groups[role].id === threadId) ?? null
 }
 
 export async function resolvedSettings(): Promise<ResolvedSettings> {
@@ -221,7 +238,23 @@ export async function updateSettings(input: SettingsInput): Promise<SettingsView
     if (!EFFORTS.includes(input.effort as Effort)) throw bad('Invalid effort')
     $set.effort = input.effort
   }
-  for (const field of ['threadId', 'threadName', 'selfChatBy', 'selfPerson'] as const) {
+  if (input.groups !== undefined) {
+    const current = resolve(await loadSettings()).groups
+    const next = { ...current }
+    for (const role of GROUP_ROLES) {
+      const patch = input.groups[role]
+      if (patch === undefined) continue
+      const id = typeof patch?.id === 'string' ? patch.id.trim() : null
+      const name = typeof patch?.name === 'string' ? patch.name.trim() : ''
+      if (id === null || id.length > 200 || name.length > 200) throw bad(`The ${role} group needs an id (empty to clear it)`)
+      next[role] = { id, name: id ? name : '' }
+    }
+    if (next.internal.id && next.internal.id === next.external.id) {
+      throw bad('The internal and the external group must be two different chats')
+    }
+    $set.groups = next
+  }
+  for (const field of ['selfChatBy', 'selfPerson'] as const) {
     const value = input[field]
     if (value === undefined) continue
     if (typeof value !== 'string' || value.length > 200) throw bad(`${field} must be a short string`)

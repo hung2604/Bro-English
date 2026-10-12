@@ -1,14 +1,21 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 
 /**
+ * The server-side secret everything else is derived from: `SETTINGS_SECRET`, falling back to
+ * `MONGODB_URI` (long, private, and always set). The admin PIN is far too short for this.
+ */
+export function secretMaterial(): string {
+  const material = process.env.SETTINGS_SECRET?.trim() || process.env.MONGODB_URI?.trim()
+  if (!material) throw new Error('Missing SETTINGS_SECRET or MONGODB_URI to derive a secret key')
+  return material
+}
+
+/**
  * Encrypts secrets (API keys, webhook token) before they are stored in Mongo, AES-256-GCM.
- * The key is derived from `SETTINGS_SECRET`, falling back to `AGENT_ADMIN_PASSWORD`:
- * changing that variable means the saved keys have to be entered again.
+ * Changing the variable behind `secretMaterial` means the saved keys have to be entered again.
  */
 function key(): Buffer {
-  const material = process.env.SETTINGS_SECRET?.trim() || process.env.AGENT_ADMIN_PASSWORD?.trim()
-  if (!material) throw new Error('Missing SETTINGS_SECRET or AGENT_ADMIN_PASSWORD to encrypt secrets')
-  return createHash('sha256').update(`bro-english:${material}`).digest()
+  return createHash('sha256').update(`bro-english:${secretMaterial()}`).digest()
 }
 
 export function seal(plain: string): string {

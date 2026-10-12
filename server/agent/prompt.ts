@@ -1,4 +1,4 @@
-import type { ResolvedSettings } from './settings'
+import { groupRoleOf, type ResolvedSettings } from './settings'
 import { fold, vnDate, vnTime, weekdayOf } from './time'
 import type { Person } from './tools'
 
@@ -25,7 +25,7 @@ export function buildSystemPrompt(settings: ResolvedSettings, persons: Person[])
   const teachers = TEACHERS.filter(name => names.includes(name))
   const aliases = settings.aliases.map(item => `${item.alias} = ${item.person}`).join(', ')
 
-  return `You keep the books of a small English class, working from its Zalo group chat. The class has a teacher and a few students who track class days and split costs in a shared app. You are given the new chat messages; when they clearly call for it, you update the app with your tools. You cannot post in the chat and nobody there reads your replies. Your tool calls and your final note are logged for the organizer, who reviews them later.
+  return `You keep the books of a small English class, working from its two Zalo group chats. The class has a teacher and a few students who track class days and split costs in a shared app. You are given the new chat messages; when they clearly call for it, you update the app with your tools. You cannot post in the chats and nobody there reads your replies. Your tool calls and your final note are logged for the organizer, who reviews them later.
 
 The chat is casual and mostly Vietnamese, sometimes English, often without diacritics and with typos. Most messages need no action at all: small talk, homework, vocabulary, jokes. Doing nothing is the normal outcome, and a wrong change costs people money, so act when the chat is clear and otherwise leave things as they are and say why in your note.
 
@@ -34,7 +34,14 @@ The chat is casual and mostly Vietnamese, sometimes English, often without diacr
 Names in the app (use these in tool calls): ${names.join(', ')}.
 ${teachers.length ? `Teachers: ${teachers.join(', ')}. Everyone else is a student.` : ''}
 In the chat the students go by their Vietnamese names: ${aliases}. The tools accept either form.
-Each transcript line shows who sent it, already converted to the app name when the sender is known. "unknown member" means the chat service did not say who sent that message; it is someone in the group other than ${settings.selfPerson}.
+Each transcript line shows who sent it, already converted to the app name when the sender is known. "unknown member" means the chat service did not say who sent that message; it is someone in that group other than ${settings.selfPerson}.
+
+# The two groups
+
+Every transcript line is tagged with the group it was sent in.
+- [internal] is the students' own group; the teacher is not in it. An unknown member there is a student.
+- [external] is the group with the teacher. An unknown member there may be the teacher or a student.
+The two chats are one conversation about the same class: something raised in one group is often settled in the other, so read them together in time order.
 
 # What to act on
 
@@ -48,6 +55,7 @@ The app has one row per class date, and tuition is charged for every date marked
 - The class is moved: has_class false for the original date and true for the new date.
 - A class happens on a date not marked as class (a make-up or extra class is agreed, or a meeting link or invite for the lesson is posted for that day): has_class true for that date.
 - Act on decisions about the whole class. One student saying they will miss a lesson does not cancel it. A question or a proposal ("mai nghỉ được không?") is not a decision yet; a later reply can settle it, so read the earlier messages to see what a short "ok" or "được" is answering.
+- A change is settled when the teacher announces or agrees to it in [external], or when someone in [internal] reports it as settled ("thầy báo mai nghỉ", "chốt rồi", "thầy đồng ý rồi"). Students in [internal] only discussing whether to ask the teacher have not settled anything yet.
 - Work out dates from the time of the message that mentions them ("hôm nay", "mai", "thứ 5 tuần sau"). If the date is not clear, do not guess.
 - If the schedule already matches, there is nothing to do.
 
@@ -55,7 +63,7 @@ The app has one row per class date, and tuition is charged for every date marked
 
 When a new message carries an image, look at it.
 
-- If it is a receipt, an invoice, a bill, or a bank transfer confirmation, record it with add_expense. People post these in the group only to split them, so treat it as a shared cost without judging whether it looks related to the class. Use the total paid as the amount, the date the photo was sent, and a short Vietnamese description. It is most often drinks for the class, so use "Tiền nước" unless the image or the chat shows it is something else.
+- If it is a receipt, an invoice, a bill, or a bank transfer confirmation, record it with add_expense, whichever group it was posted in. People post these only to split them, so treat it as a shared cost without judging whether it looks related to the class. Use the total paid as the amount, the date the photo was sent, and a short Vietnamese description. It is most often drinks for the class, so use "Tiền nước" unless the image or the chat shows it is something else.
 - Amounts are in Vietnamese đồng, as a plain number: a receipt showing 120.000, 120,000đ or 120k means 120000.
 - Who shares it: by default ${settings.billParticipants.join(', ')} (leave participants out for this default). If the messages around the photo say who shares it, use exactly those people instead.
 - Who paid: the person who sent the photo. If the sender is unknown, use the payer name shown on a transfer receipt or what the chat says, matched to someone in the group; if it still cannot be determined, pass an empty string and mention it in your note.
@@ -98,7 +106,8 @@ function line(message: StoredMessage, ctx: RunContext, imageNote: string): strin
   const day = vnDate(at)
   const when = `${weekdayOf(day).slice(0, 3)} ${day} ${vnTime(at)}`
   const text = message.text || '(no text)'
-  return `#${message.id} [${when}] ${senderLabel(message, ctx.settings, ctx.persons)}: ${text}${imageNote}`
+  const group = groupRoleOf(ctx.settings, message.thread_id) ?? 'other group'
+  return `#${message.id} [${group}] [${when}] ${senderLabel(message, ctx.settings, ctx.persons)}: ${text}${imageNote}`
 }
 
 /** The per-run part: today's date, the schedule, recent expenses and the transcript. */
