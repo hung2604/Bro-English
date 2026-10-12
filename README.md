@@ -1,6 +1,13 @@
-# Nuxt Minimal Starter
+# Bro English
 
-Look at the [Nuxt documentation](https://nuxt.com/docs/getting-started/introduction) to learn more.
+App for a small English class: class calendar, shared expenses and tuition split, vocabulary and spaced-repetition study. Built with Nuxt 4 and MongoDB, deployed on Vercel at https://bro-english.vercel.app.
+
+- **Calendar**: which days had class; tuition is charged per class held.
+- **Expenses**: shared bills, who paid and who splits them, monthly summary per person.
+- **Vocabulary / Study**: words from each lesson and daily review.
+- **Zalo Agent** (`/agent`): reads the class group chat sent by smax.ai to `/api/webhooks/zalo`, marks cancelled or moved classes and records bill photos as expenses.
+
+Environment variables are described in [ENV_SETUP.md](ENV_SETUP.md).
 
 ## Setup
 
