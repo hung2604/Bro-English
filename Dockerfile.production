@@ -1,0 +1,45 @@
+# Bro-English Dockerfile - Production Build
+# Nuxt SSR (nitro node-server). Runner chỉ cần .output (đã tự bundle node_modules cần thiết).
+
+# Stage 1: Build
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+RUN apk add --no-cache libc6-compat
+
+ENV NODE_ENV=production
+ENV NODE_OPTIONS=--max-old-space-size=4096
+ENV NUXT_TELEMETRY_DISABLED=1
+
+COPY package*.json .npmrc ./
+
+# --ignore-scripts: postinstall `nuxt prepare` cần source code, chạy lại sau khi copy.
+RUN npm ci --include=dev --ignore-scripts
+
+COPY . .
+
+RUN npx nuxt prepare && npm run build
+
+# Stage 2: Production
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+RUN apk add --no-cache libc6-compat
+
+COPY --from=builder --chown=node:node /app/.output ./.output
+
+USER node
+
+EXPOSE 3000
+
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOST=0.0.0.0
+ENV NUXT_TELEMETRY_DISABLED=1
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1
+
+CMD ["node", ".output/server/index.mjs"]

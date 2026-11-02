@@ -1,6 +1,6 @@
 # Bro English
 
-App for a small English class: class calendar, shared expenses and tuition split, vocabulary and spaced-repetition study. Built with Nuxt 4 and MongoDB, deployed on Vercel at https://bro-english.vercel.app.
+App for a small English class: class calendar, shared expenses and tuition split, vocabulary and spaced-repetition study. Built with Nuxt 4 and MongoDB, deployed with Docker on the ShareMoney VPS at https://english.share-money.vn (see [docs/deployment.md](docs/deployment.md)).
 
 - **Calendar**: which days had class; tuition is charged per class held.
 - **Expenses**: shared bills, who paid and who splits them, monthly summary per person.
