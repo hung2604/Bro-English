@@ -1,6 +1,12 @@
 import { col } from '../../utils/db'
 import { monthRegex } from '../../utils/mongo-helpers'
 
+interface PersonTotals {
+  should_pay: number
+  already_paid: number
+  tuition_to_receive: number
+}
+
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
   const { year, month } = query
@@ -14,11 +20,13 @@ export default defineEventHandler(async (event) => {
 
   try {
     const monthPrefix = monthRegex(year as string, month as string)
+    const monthKey = `${year}-${String(month).padStart(2, '0')}`
 
     const expensesCol = await col('expenses')
     const participantsCol = await col('expense_participants')
     const personsCol = await col('persons')
     const sessionsCol = await col('class_sessions')
+    const mergesCol = await col('bill_merges')
 
     const expenses = await expensesCol.find({ date: monthPrefix }).toArray()
     const expenseIds = expenses.map((e: any) => e.id)
@@ -35,22 +43,14 @@ export default defineEventHandler(async (event) => {
 
     // Members who left the class stop sharing tuition from this month (YYYY-MM) onward
     const tuitionEndMonth: Record<string, string> = { Hairy: '2026-10' }
-    const monthKey = `${year}-${String(month).padStart(2, '0')}`
     const defaultPersons = ['Ania', 'Simon', 'Hairy', 'James', 'David']
       .filter(name => !tuitionEndMonth[name] || monthKey < tuitionEndMonth[name])
-    const teachers = ['Seb', 'Charlotte']
 
-    const defaultPersonsData = await personsCol.find({ name: { $in: defaultPersons } }).toArray()
-    const teachersData = await personsCol.find({ name: { $in: teachers } }).toArray()
-
-    const defaultPersonIds = defaultPersonsData.map((p: any) => p.id)
-    const teacherIds = teachersData.map((p: any) => p.id)
-
-    const sebData = await personsCol.findOne({ name: 'Seb' })
-    const sebPersonId = sebData?.id as number | undefined
-
-    const charlotteData = await personsCol.findOne({ name: 'Charlotte' })
-    const charlottePersonId = charlotteData?.id as number | undefined
+    const persons = await personsCol.find({}).toArray()
+    const personNameMap = new Map<number, string>(persons.map((p: any) => [p.id, p.name]))
+    const defaultPersonIds = persons.filter((p: any) => defaultPersons.includes(p.name)).map((p: any) => p.id as number)
+    // The teacher collects the tuition the students share
+    const teacherId = persons.find((p: any) => p.name === 'Seb')?.id as number | undefined
 
     const totalClasses = await sessionsCol.countDocuments({
       date: monthPrefix,
@@ -63,28 +63,21 @@ export default defineEventHandler(async (event) => {
       ? totalTuition / defaultPersonIds.length
       : 0
 
-    const personExpenses: Record<number, number> = {}
-    const personPaid: Record<number, number> = {}
-
-    defaultPersonIds.forEach((personId: number) => {
-      personExpenses[personId] = tuitionPerPerson
-      personPaid[personId] = 0
-    })
-
-    teacherIds.forEach((personId: number) => {
-      if (charlottePersonId && personId === charlottePersonId) return
-      personExpenses[personId] = 0
-      personPaid[personId] = 0
-      if (sebPersonId && personId === sebPersonId) {
-        personPaid[personId] = -totalTuition
+    const totals = new Map<number, PersonTotals>()
+    const totalsOf = (personId: number) => {
+      let entry = totals.get(personId)
+      if (!entry) {
+        entry = { should_pay: 0, already_paid: 0, tuition_to_receive: 0 }
+        totals.set(personId, entry)
       }
-    })
+      return entry
+    }
 
-    if (charlottePersonId && sebPersonId) {
-      if (personExpenses[sebPersonId] === undefined) {
-        personExpenses[sebPersonId] = 0
-        personPaid[sebPersonId] = -totalTuition
-      }
+    defaultPersonIds.forEach((personId) => {
+      totalsOf(personId).should_pay += tuitionPerPerson
+    })
+    if (teacherId) {
+      totalsOf(teacherId).tuition_to_receive += totalTuition
     }
 
     expenses.forEach((expense: any) => {
@@ -95,83 +88,47 @@ export default defineEventHandler(async (event) => {
         : 0
 
       if (paidBy) {
-        const targetPaidBy = (charlottePersonId && sebPersonId && paidBy === charlottePersonId)
-          ? sebPersonId
-          : paidBy
-
-        if (targetPaidBy) {
-          if (personPaid[targetPaidBy] === undefined) {
-            personPaid[targetPaidBy] = 0
-          }
-          personPaid[targetPaidBy] += expense.amount
-        }
+        totalsOf(paidBy).already_paid += expense.amount
       }
-
       participantIds.forEach((personId: number) => {
-        const targetPersonId = (charlottePersonId && sebPersonId && personId === charlottePersonId)
-          ? sebPersonId
-          : personId
-
-        if (!targetPersonId) return
-
-        if (personExpenses[targetPersonId] === undefined) {
-          personExpenses[targetPersonId] = 0
-        }
-        if (personPaid[targetPersonId] === undefined) {
-          personPaid[targetPersonId] = 0
-        }
-
-        personExpenses[targetPersonId] += amountPerPerson
+        totalsOf(personId).should_pay += amountPerPerson
       })
     })
 
-    const persons = await personsCol.find({}).toArray()
-    const personNameMap = new Map(persons.map((p: any) => [p.id, p.name]))
+    // Bill merges: the payer settles the covered person's whole bill, so the covered person's
+    // share and payments move onto the payer and they drop out of the list.
+    const merges = await mergesCol.find({ month: monthKey }).sort({ id: 1 }).toArray()
+    const netOf = (t: PersonTotals) => t.should_pay - t.already_paid - t.tuition_to_receive
+    const mergedInto = new Map<number, Array<{ person_id: number, person_name: string, total_amount: number }>>()
 
-    const allPersonIdsWithExpenses = new Set<number>()
+    merges.forEach((merge: any) => {
+      const covered = totals.get(merge.covered_id)
+      const list = mergedInto.get(merge.payer_id) || []
+      list.push({
+        person_id: merge.covered_id,
+        person_name: personNameMap.get(merge.covered_id) || 'Unknown',
+        total_amount: Math.round(covered ? netOf(covered) : 0),
+      })
+      mergedInto.set(merge.payer_id, list)
 
-    defaultPersonIds.forEach(id => allPersonIdsWithExpenses.add(id))
-    teacherIds.forEach((personId) => {
-      if (!charlottePersonId || personId !== charlottePersonId) {
-        allPersonIdsWithExpenses.add(personId)
+      const payer = totalsOf(merge.payer_id)
+      if (covered) {
+        payer.should_pay += covered.should_pay
+        payer.already_paid += covered.already_paid
+        payer.tuition_to_receive += covered.tuition_to_receive
+        totals.delete(merge.covered_id)
       }
     })
 
-    Object.keys(personExpenses).forEach((personIdStr) => {
-      const personId = Number.parseInt(personIdStr)
-      if (!charlottePersonId || personId !== charlottePersonId) {
-        allPersonIdsWithExpenses.add(personId)
-      }
-    })
-
-    Object.keys(personPaid).forEach((personIdStr) => {
-      const personId = Number.parseInt(personIdStr)
-      if (!charlottePersonId || personId !== charlottePersonId) {
-        allPersonIdsWithExpenses.add(personId)
-      }
-    })
-
-    const allPersonIds = Array.from(allPersonIdsWithExpenses)
-
-    const summary = allPersonIds.map((personId) => {
-      const shouldPay = personExpenses[personId] ?? 0
-      const alreadyPaid = personPaid[personId] ?? 0
-
-      let netAmount: number
-      if (alreadyPaid >= 0) {
-        netAmount = shouldPay - alreadyPaid
-      } else {
-        netAmount = shouldPay + alreadyPaid
-      }
-
-      return {
-        person_id: personId,
-        person_name: personNameMap.get(personId) || 'Unknown',
-        total_amount: Math.round(netAmount),
-        should_pay: Math.round(shouldPay),
-        already_paid: Math.round(alreadyPaid),
-      }
-    })
+    const summary = Array.from(totals.entries()).map(([personId, t]) => ({
+      person_id: personId,
+      person_name: personNameMap.get(personId) || 'Unknown',
+      total_amount: Math.round(netOf(t)),
+      should_pay: Math.round(t.should_pay),
+      already_paid: Math.round(t.already_paid),
+      tuition_to_receive: Math.round(t.tuition_to_receive),
+      merged: mergedInto.get(personId) || [],
+    }))
 
     const totalAmountToCollect = summary
       .filter(item => item.total_amount > 0)
@@ -189,7 +146,8 @@ export default defineEventHandler(async (event) => {
       total_to_pay: totalAmountToPay,
       by_person: summary.sort((a, b) => b.total_amount - a.total_amount),
     }
-  } catch {
+  } catch (error) {
+    console.error('Error in expenses/summary.get:', error)
     throw createError({
       statusCode: 500,
       message: 'Failed to calculate summary',

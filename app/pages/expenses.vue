@@ -165,11 +165,48 @@
                     </div>
                     <div class="text-xs space-y-0.5" :class="person.total_amount > 0 ? 'text-red-700' : person.total_amount < 0 ? 'text-green-700' : 'text-gray-700'">
                       <div>Should pay: {{ formatCurrency(person.should_pay) }}</div>
-                      <div v-if="person.already_paid !== 0">
-                        <span v-if="person.already_paid > 0">Already paid: {{ formatCurrency(person.already_paid) }}</span>
-                        <span v-else>To receive: +{{ formatCurrency(Math.abs(person.already_paid)) }}</span>
+                      <div v-if="person.already_paid > 0">Already paid: {{ formatCurrency(person.already_paid) }}</div>
+                      <div v-if="person.tuition_to_receive > 0">Tuition to receive: +{{ formatCurrency(person.tuition_to_receive) }}</div>
+                      <div v-for="covered in person.merged" :key="covered.person_id">
+                        Pays for {{ covered.person_name }}:
+                        <span v-if="covered.total_amount < 0">+</span>{{ formatCurrency(Math.abs(covered.total_amount)) }}
+                        {{ covered.total_amount > 0 ? 'to pay' : covered.total_amount < 0 ? 'to receive' : 'balanced' }}
                       </div>
                     </div>
+                  </div>
+                </div>
+              </div>
+              <div class="border-t pt-4 mt-4">
+                <div class="flex items-center justify-between mb-2">
+                  <div class="text-sm font-semibold text-gray-700">Merged Bills</div>
+                  <UButton
+                    @click="openMergeModal"
+                    variant="ghost"
+                    color="primary"
+                    icon="i-heroicons-plus"
+                    size="xs"
+                  >
+                    Merge bill
+                  </UButton>
+                </div>
+                <div v-if="billMerges.length === 0" class="text-xs text-gray-500">
+                  One person can pay someone else's whole bill this month.
+                </div>
+                <div v-else class="space-y-1">
+                  <div
+                    v-for="merge in billMerges"
+                    :key="merge.id"
+                    class="flex items-center justify-between text-sm text-gray-700 bg-gray-50 rounded px-2 py-1"
+                  >
+                    <span><span class="font-semibold">{{ merge.payer_name }}</span> pays for {{ merge.covered_name }}</span>
+                    <UButton
+                      @click="removeMerge(merge.id)"
+                      variant="ghost"
+                      color="error"
+                      icon="i-heroicons-x-mark"
+                      size="xs"
+                      title="Remove"
+                    />
                   </div>
                 </div>
               </div>
@@ -250,6 +287,56 @@
             :disabled="!canAddExpense || adding"
           >
             {{ adding ? (editingExpense ? 'Updating...' : 'Adding...') : (editingExpense ? 'Update' : 'Add') }}
+          </UButton>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Merge Bill Modal -->
+    <UModal v-model:open="showMergeModal" :title="`Merge bill - ${currentMonthYear}`">
+      <template #body>
+        <div class="space-y-4">
+          <UFormField label="Payer" required>
+            <USelect
+              :model-value="newMerge.payerId ?? undefined"
+              class="w-full"
+              :items="personOptions"
+              value-key="value"
+              placeholder="Who pays"
+              @update:model-value="newMerge.payerId = $event ?? null"
+            />
+          </UFormField>
+          <UFormField label="Pays for" required>
+            <USelect
+              :model-value="newMerge.coveredId ?? undefined"
+              class="w-full"
+              :items="personOptions.filter(p => p.value !== newMerge.payerId)"
+              value-key="value"
+              placeholder="Whose bill"
+              @update:model-value="newMerge.coveredId = $event ?? null"
+            />
+          </UFormField>
+          <p class="text-xs text-gray-500">
+            Everything the second person should pay or has paid this month is counted for the payer.
+          </p>
+          <p v-if="mergeError" class="text-sm text-red-600">{{ mergeError }}</p>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <UButton
+            @click="showMergeModal = false"
+            variant="ghost"
+            color="neutral"
+          >
+            Cancel
+          </UButton>
+          <UButton
+            @click="saveMerge"
+            color="primary"
+            :disabled="!newMerge.payerId || !newMerge.coveredId || newMerge.payerId === newMerge.coveredId || merging"
+          >
+            {{ merging ? 'Merging...' : 'Merge' }}
           </UButton>
         </div>
       </template>
@@ -376,7 +463,22 @@ interface Summary {
     total_amount: number
     should_pay: number
     already_paid: number
+    tuition_to_receive: number
+    merged: Array<{
+      person_id: number
+      person_name: string
+      total_amount: number
+    }>
   }>
+}
+
+interface BillMerge {
+  id: number
+  month: string
+  payer_id: number
+  payer_name: string
+  covered_id: number
+  covered_name: string
 }
 
 const route = useRoute()
@@ -441,6 +543,14 @@ const editingExpense = ref<Expense | null>(null)
 const allPersons = ref<Person[]>([])
 const showQRModal = ref(false)
 const qrData = ref<{ amount: number; description: string; isSeb: boolean } | null>(null)
+const billMerges = ref<BillMerge[]>([])
+const showMergeModal = ref(false)
+const merging = ref(false)
+const mergeError = ref('')
+const newMerge = ref({
+  payerId: null as number | null,
+  coveredId: null as number | null
+})
 
 const expenseTypes = [
   { label: 'Tuition', value: 'tuition' },
@@ -528,14 +638,62 @@ const loadSummary = async () => {
   try {
     const year = currentDate.value.getFullYear()
     const month = currentDate.value.getMonth() + 1
-    summary.value = await $fetch<Summary>('/api/expenses/summary', {
-      query: { year, month }
-    })
+    const [summaryData, merges] = await Promise.all([
+      $fetch<Summary>('/api/expenses/summary', { query: { year, month } }),
+      $fetch<BillMerge[]>('/api/bill-merges', { query: { year, month } })
+    ])
+    summary.value = summaryData
+    billMerges.value = merges
   } catch (error) {
     console.error('Failed to load summary:', error)
   } finally {
     summaryLoading.value = false
   }
+}
+
+const openMergeModal = () => {
+  newMerge.value = { payerId: null, coveredId: null }
+  mergeError.value = ''
+  showMergeModal.value = true
+}
+
+const saveMerge = async () => {
+  merging.value = true
+  mergeError.value = ''
+  try {
+    await $fetch('/api/bill-merges', {
+      method: 'POST',
+      body: {
+        month: summaryMonthKey(),
+        payerId: newMerge.value.payerId,
+        coveredId: newMerge.value.coveredId
+      }
+    })
+    showMergeModal.value = false
+    await loadSummary()
+  } catch (error: any) {
+    mergeError.value = error?.data?.message || 'Failed to merge bill'
+  } finally {
+    merging.value = false
+  }
+}
+
+const removeMerge = async (id: number) => {
+  if (!confirm('Remove this bill merge?')) return
+
+  try {
+    await $fetch(`/api/bill-merges/${id}`, { method: 'DELETE' })
+    await loadSummary()
+  } catch (error) {
+    console.error('Failed to remove bill merge:', error)
+    alert('Failed to remove bill merge')
+  }
+}
+
+const summaryMonthKey = () => {
+  const year = currentDate.value.getFullYear()
+  const month = currentDate.value.getMonth() + 1
+  return `${year}-${String(month).padStart(2, '0')}`
 }
 
 const toggleParticipant = (personId: number) => {

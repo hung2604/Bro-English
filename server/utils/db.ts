@@ -88,6 +88,8 @@ async function ensureIndexes(db: Db) {
     db.collection('agent_messages').createIndex({ external_id: 1 }, { unique: true }),
     db.collection('agent_messages').createIndex({ thread_id: 1, id: 1 }),
     db.collection('agent_runs').createIndex({ id: 1 }, { unique: true }),
+    db.collection('bill_merges').createIndex({ id: 1 }, { unique: true }),
+    db.collection('bill_merges').createIndex({ month: 1, covered_id: 1 }, { unique: true }),
   ])
 }
 
